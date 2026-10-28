@@ -12,7 +12,9 @@ Double-clique sur **Lancer-MSN.cmd**, ou lance `npm start` puis ouvre `http://12
 2. Active l’API locale.
 3. Dans MSN Revival, clique **Autoriser dans Beeper**, puis approuve l’accès sur la page de Beeper. La connexion manuelle par clé est aussi disponible dans les réglages.
 
-Le serveur local garde l’autorisation en mémoire. Le navigateur reçoit seulement un cookie de session ; aucun token n’est écrit par ce client sur disque. Toutes les requêtes restent locales. Voir [GUIDE.md](GUIDE.md) pour les fonctions disponibles, les limites et les vérifications.
+Une seule autorisation suffit : MSN conserve la connexion après fermeture, redémarrage du serveur ou du PC. Sous Windows, la clé est chiffrée avec DPAPI pour ton compte Windows dans `%LOCALAPPDATA%\MSN Revival\beeper-auth.json`. Elle reste côté serveur, hors du dépôt ; le navigateur reçoit seulement un cookie. Sur les autres systèmes, le fichier est privé à l’utilisateur (permissions 0600).
+
+La validation Beeper s’ouvre dans une fenêtre séparée : MSN reste ouvert et charge automatiquement les conversations après accord. Si Beeper est fermé ou temporairement inaccessible, la clé est conservée et MSN réessaie sans nouvelle autorisation. **Déconnecter** efface volontairement la connexion enregistrée ; une clé révoquée dans Beeper nécessite une nouvelle autorisation. Voir [GUIDE.md](GUIDE.md) pour les fonctions disponibles, les limites et les vérifications.
 
 Les sons sont recréés avec Web Audio et n’utilisent pas les fichiers audio Microsoft d’origine.
 

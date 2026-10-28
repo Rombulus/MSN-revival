@@ -6,12 +6,17 @@ import { avatarSources, imageType } from './profiles.mjs';
 import { join } from 'node:path';
 import { rememberMedia } from './media.mjs';
 import { serveMedia } from './media-server.mjs';
+import { createAuthStore } from './auth-store.mjs';
 
 const port = Number(process.env.PORT || 4173);
 const origin = `http://127.0.0.1:${port}`;
 const root = fileURLToPath(new URL('.', import.meta.url));
 const sessions = new Map();
 const flows = new Map();
+const authStore = createAuthStore();
+let savedAuth = null, authError = null;
+try { savedAuth = await authStore.load(); if (savedAuth) savedAuth.base = localBase(savedAuth.base); }
+catch { savedAuth = null; authError = 'Impossible de relire l’autorisation enregistrée. Reconnecte Beeper pour la remplacer.'; }
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']],
   ['/styles.css', ['styles.css', 'text/css']], ['/client.js', ['client.js', 'text/javascript']],
@@ -28,11 +33,22 @@ function reply(res, status, data) {
 function session(req, res) {
   let id = /(?:^|; )msn_session=([A-Za-z0-9_-]+)/.exec(req.headers.cookie || '')?.[1];
   if (!id || !sessions.has(id)) {
-    id = random(); sessions.set(id, { base: 'http://localhost:23373', assets: new Set(), touched: Date.now() });
-    res.setHeader('Set-Cookie', `msn_session=${id}; HttpOnly; SameSite=Lax; Path=/`);
+    id = random(); sessions.set(id, { base: savedAuth?.base || 'http://localhost:23373', token: savedAuth?.token, assets: new Set(), touched: Date.now() });
+    res.setHeader('Set-Cookie', sessionCookie(id));
   }
   const value = sessions.get(id); value.touched = Date.now();
   return { id, ...value, value };
+}
+const sessionCookie = id => `msn_session=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000`;
+async function rememberAuth(base, token, authorizationID = random()) {
+  if (typeof token !== 'string' || !token.trim()) throw new Error('Beeper n’a pas fourni de clé valide.');
+  const value = { base, token: token.trim(), authorizationID };
+  try { await authStore.save(value); } catch { throw new Error('Impossible de mémoriser la connexion à Beeper sur cet ordinateur.'); }
+  savedAuth = value; authError = null;
+  for (const session of sessions.values()) {
+    session.base = base; session.token = value.token;
+    session.assets.clear(); session.media?.clear(); session.uploads?.clear();
+  }
 }
 function localBase(value) {
   const url = new URL(value || 'http://localhost:23373');
@@ -61,7 +77,7 @@ const server = http.createServer(async (req, res) => {
     const s = session(req, res);
     if (url.pathname === '/api/status' && req.method === 'GET') {
       let info; try { info = await remote(s.base, '/v1/info'); } catch {}
-      return reply(res, 200, { connected: !!s.value.token, available: !!info, version: info?.app?.version, base: s.base });
+      return reply(res, 200, { connected: !!s.value.token, available: !!info, version: info?.app?.version, base: s.base, authorizationID: savedAuth?.authorizationID, authError });
     }
     if (url.pathname === '/api/auth/start' && req.method === 'POST') {
       const input = await body(req); const base = localBase(input.base);
@@ -71,7 +87,7 @@ const server = http.createServer(async (req, res) => {
       flows.set(state, { sessionId: s.id, base, verifier, clientId: registration.client_id, created: Date.now() });
       const authorization = new URL(base + '/oauth/authorize');
       authorization.search = new URLSearchParams({ client_id: registration.client_id, redirect_uri: redirect, response_type: 'code', scope: 'read write', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
-      return reply(res, 200, { url: authorization.href });
+      return reply(res, 200, { url: authorization.href, authorizationID: state });
     }
     if (url.pathname === '/oauth/callback' && req.method === 'GET') {
       const flow = flows.get(url.searchParams.get('state')); flows.delete(url.searchParams.get('state'));
@@ -79,17 +95,20 @@ const server = http.createServer(async (req, res) => {
       if (url.searchParams.has('error')) throw new Error('Autorisation refusée dans Beeper.');
       const code = url.searchParams.get('code'); if (!code) throw new Error('Code d’autorisation manquant.');
       const token = await remote(flow.base, '/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, code_verifier: flow.verifier, client_id: flow.clientId, redirect_uri: origin + '/oauth/callback' }) });
-      const target = sessions.get(flow.sessionId); if (!target) throw new Error('Session expirée.');
-      target.token = token.access_token; target.base = flow.base;
-      res.writeHead(303, { Location: '/?connected=1', 'Set-Cookie': `msn_session=${flow.sessionId}; HttpOnly; SameSite=Lax; Path=/` }); return res.end();
+      await rememberAuth(flow.base, token.access_token, url.searchParams.get('state'));
+      res.writeHead(303, { Location: '/?connected=1', 'Set-Cookie': sessionCookie(flow.sessionId) }); return res.end();
     }
     if (url.pathname === '/api/auth/token' && req.method === 'POST') {
       const input = await body(req); const base = localBase(input.base);
       if (typeof input.token !== 'string' || !input.token.trim()) throw new Error('Ajoute une clé Beeper.');
       await remote(base, '/v1/accounts', { headers: { Authorization: `Bearer ${input.token.trim()}` } });
-      s.value.token = input.token.trim(); s.value.base = base; return reply(res, 200, { connected: true });
+      await rememberAuth(base, input.token); return reply(res, 200, { connected: true });
     }
-    if (url.pathname === '/api/logout' && req.method === 'POST') { await body(req); delete s.value.token; s.value.assets.clear(); s.value.media?.clear(); s.value.uploads?.clear(); return reply(res, 200, { connected: false }); }
+    if (url.pathname === '/api/logout' && req.method === 'POST') {
+      await body(req); await authStore.clear(); savedAuth = null; authError = null;
+      for (const session of sessions.values()) { delete session.token; session.assets.clear(); session.media?.clear(); session.uploads?.clear(); }
+      flows.clear(); return reply(res, 200, { connected: false });
+    }
     if (url.pathname === '/api/upload' && req.method === 'POST') {
       if (!s.value.token) return reply(res, 401, { error: 'Connecte Beeper avant de joindre un fichier.' });
       if (req.headers.origin !== origin || !/^multipart\/form-data;\s*boundary=/i.test(req.headers['content-type'] || '')) return reply(res, 415, { error: 'Fichier multipart attendu.' });

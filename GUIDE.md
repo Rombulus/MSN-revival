@@ -20,7 +20,9 @@ La liste Contacts reprend une présentation MSN compacte : groupes repliables, n
 
 Les deux cadres de photos sont carrés : interlocuteur en haut, ton profil du réseau de la conversation en bas. Si ce réseau ne fournit pas ta photo, le client essaie ton autre profil personnel disponible dans Beeper. Une silhouette remplace les photos absentes. Pour un groupe, la photo du groupe apparaît en haut.
 
-L’autorisation reste en mémoire dans le serveur local et le navigateur reçoit seulement un cookie de session. Aucun token n’est écrit par ce client sur disque. Après l’arrêt du serveur, reconnecte-toi. Le bouton **Déconnecter** dans les réglages retire l’accès de la session. L’autorisation de l’application peut aussi être révoquée depuis Beeper.
+L’autorisation est mémorisée et retrouvée après fermeture de MSN, redémarrage du serveur ou du PC, même sans ancien cookie navigateur. Sous Windows, la clé est chiffrée avec DPAPI pour ton compte Windows et enregistrée dans `%LOCALAPPDATA%\MSN Revival\beeper-auth.json`, hors du dépôt. Sur les autres systèmes, le fichier est privé à l’utilisateur (permissions 0600). Le navigateur ne reçoit jamais la clé. Le lanceur utilise un profil Edge dédié dans le même dossier utilisateur.
+
+L’autorisation Beeper s’ouvre séparément : laisse MSN ouvert, valide la liaison, et les conversations se chargent automatiquement sans relancer l’outil. Beeper temporairement indisponible ne supprime pas la connexion ; MSN réessaie automatiquement. Le bouton **Déconnecter** efface la clé enregistrée pour tous les onglets locaux. Une révocation dans Beeper demande une nouvelle autorisation.
 
 ## Ce qui fonctionne
 

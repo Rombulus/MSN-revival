@@ -15,6 +15,7 @@ let recording = null, recordingSequence = 0, draftAudioURL = null, draftImageURL
 const collapsedRosterGroups = new Set();
 let historyUnreadOnly = false;
 let readTimer;
+let authorization = null, connectionBusy = false;
 const seen = new Map();
 const current = () => chats.find(chat => chat.id === activeId);
 const plain = text => /<\/?[a-z][^>]*>/i.test(text || '') ? new DOMParser().parseFromString(text, 'text/html').body.textContent : (text || '');
@@ -478,23 +479,70 @@ $('#attach-btn').addEventListener('click', () => { $('#file-input').accept = '';
 function openSettings() { $('#settings-error').hidden = true; $('#settings-modal').hidden = false; $('#disconnect-button').hidden = !connected; }
 function settingsError(error) { $('#settings-error').textContent = error.message; $('#settings-error').hidden = false; }
 async function oauth() {
+  if (authorization) return;
   const button = $('#authorize-button'); button.disabled = true;
+  const popup = window.open('about:blank', 'msn-beeper-authorization', 'popup,width=780,height=720');
   try {
     if (location.protocol === 'file:') throw new Error('Lance Lancer-MSN.cmd puis ouvre http://127.0.0.1:4173 pour connecter Beeper.');
     const result = await request('/api/auth/start', { method: 'POST', body: JSON.stringify({ base: $('#api-url').value.trim() }) });
-    location.assign(result.url);
-  } catch (error) { settingsError(error); button.disabled = false; }
+    if (!popup) { location.assign(result.url); return; }
+    popup.location.replace(result.url);
+    authorization = { popup, id: result.authorizationID, started: Date.now(), busy: false };
+    authorization.timer = setInterval(checkAuthorization, 1000);
+    connectionLabel('Valide la connexion dans la fenêtre Beeper…');
+  } catch (error) { popup?.close(); settingsError(error); button.disabled = false; }
 }
+function finishAuthorization() {
+  if (authorization) { clearInterval(authorization.timer); authorization.popup.close(); authorization = null; }
+  $('#authorize-button').disabled = false;
+}
+async function restoreConnection(status, force = false) {
+  if (!status.connected || connectionBusy) return false;
+  connectionBusy = true;
+  try {
+    if (force) { accountsLoaded = false; accounts = []; }
+    connected = true; await loadChats();
+    if (!connected) return false;
+    $('#settings-modal').hidden = true; return true;
+  } finally { connectionBusy = false; }
+}
+async function checkAuthorization() {
+  const pending = authorization; if (!pending || pending.busy) return;
+  if (Date.now() - pending.started > 600_000) { finishAuthorization(); settingsError(new Error('La demande de connexion a expiré. Recommence l’autorisation.')); return; }
+  pending.busy = true;
+  try {
+    const status = await request('/api/status');
+    if (authorization === pending && status.connected && status.authorizationID === pending.id && await restoreConnection(status, true)) {
+      finishAuthorization(); toast('Beeper connecté. La connexion sera conservée aux prochains lancements.');
+    } else if (authorization === pending && pending.popup.closed && status.authorizationID !== pending.id) {
+      finishAuthorization(); settingsError(new Error('La fenêtre Beeper a été fermée. Tu peux relancer l’autorisation.'));
+    }
+  } catch (error) { connectionLabel(error.message, true); }
+  finally { pending.busy = false; }
+}
+window.addEventListener('message', event => {
+  if (event.origin !== location.origin) return;
+  if (event.data?.type === 'msn-beeper-connected') checkAuthorization();
+  else if (event.data?.type === 'msn-beeper-error') { finishAuthorization(); openSettings(); settingsError(new Error(event.data.error)); }
+});
 async function initialize() {
+  const params = new URLSearchParams(location.search);
+  if (params.has('authError') && window.opener) {
+    window.opener.postMessage({ type: 'msn-beeper-error', error: params.get('authError') }, location.origin); window.close(); return;
+  }
+  if (params.has('connected') && window.opener) {
+    window.opener.postMessage({ type: 'msn-beeper-connected' }, location.origin); window.close(); return;
+  }
   renderContacts(); renderHeader(); renderMessages(true);
   if (location.protocol === 'file:') { connectionLabel('Démo · lance Lancer-MSN.cmd pour connecter Beeper'); return; }
   try {
     const status = await request('/api/status'); $('#api-url').value = status.base;
     connected = status.connected;
-    if (connected) await loadChats();
+    if (connected) await restoreConnection(status);
     else { connectionLabel(status.available ? 'Beeper détecté · autorisation requise' : 'Beeper inaccessible · mode démonstration'); openSettings(); }
     const error = new URLSearchParams(location.search).get('authError');
     if (error) { openSettings(); settingsError(new Error(error)); }
+    else if (status.authError) settingsError(new Error(status.authError));
     history.replaceState(null, '', '/');
   } catch (error) { connectionLabel(error.message, true); }
 }
@@ -541,11 +589,11 @@ $('#settings-close').addEventListener('click', () => { $('#settings-modal').hidd
 $('#authorize-button').addEventListener('click', oauth);
 $('#connect-button').addEventListener('click', async event => {
   event.target.disabled = true;
-  try { await request('/api/auth/token', { method: 'POST', body: JSON.stringify({ base: $('#api-url').value, token: $('#api-token').value }) }); $('#api-token').value = ''; accountsLoaded = false; accounts = []; connected = true; await loadChats(); $('#settings-modal').hidden = true; }
+  try { await request('/api/auth/token', { method: 'POST', body: JSON.stringify({ base: $('#api-url').value, token: $('#api-token').value }) }); finishAuthorization(); $('#api-token').value = ''; accountsLoaded = false; accounts = []; connected = true; await loadChats(); $('#settings-modal').hidden = true; }
   catch (error) { settingsError(error); }
   finally { event.target.disabled = false; }
 });
-$('#disconnect-button').addEventListener('click', async () => { cancelRecording(); try { await request('/api/logout', { method: 'POST', body: '{}' }); connected = false; accountsLoaded = false; accounts = []; chats = structuredClone(demo); activeId = 'demo'; renderContacts(); renderHeader(); renderMessages(true); renderAttachmentDraft(); connectionLabel('Déconnecté · mode démonstration'); $('#disconnect-button').hidden = true; } catch (error) { settingsError(error); } });
+$('#disconnect-button').addEventListener('click', async () => { finishAuthorization(); cancelRecording(); try { await request('/api/logout', { method: 'POST', body: '{}' }); connected = false; accountsLoaded = false; accounts = []; chats = structuredClone(demo); activeId = 'demo'; renderContacts(); renderHeader(); renderMessages(true); renderAttachmentDraft(); connectionLabel('Déconnecté · mode démonstration'); $('#disconnect-button').hidden = true; } catch (error) { settingsError(error); } });
 $('#demo-button').addEventListener('click', () => { $('#settings-modal').hidden = true; });
 for (const id of ['settings-modal', 'contacts-modal']) $('#' + id).addEventListener('click', event => { if (event.target === $('#' + id)) $('#' + id).hidden = true; });
 function openContacts() { $('#contacts-modal').hidden = false; $('#contact-search').focus(); renderRoster(); }
@@ -594,4 +642,13 @@ $('#media-viewer').addEventListener('click', event => { if (event.target === $('
 document.addEventListener('keydown', event => { if (!$('#media-viewer').open) return; if (event.key === 'ArrowLeft') { event.preventDefault(); showPhoto(galleryIndex - 1); } if (event.key === 'ArrowRight') { event.preventDefault(); showPhoto(galleryIndex + 1); } });
 setInterval(async () => { if (!connected || syncBusy || document.hidden || sending) return; syncBusy = true; try { await syncMessages(current()); } finally { syncBusy = false; } }, 4000);
 setInterval(() => { if (connected && !document.hidden) loadChats().catch(error => connectionLabel(error.message, true)); }, 20_000);
+setInterval(async () => {
+  if (document.hidden || connectionBusy || authorization || (connected && accountsLoaded && current()?.id !== 'demo')) return;
+  connectionBusy = true;
+  let status;
+  try { status = await request('/api/status'); }
+  catch (error) { connectionLabel(error.message, true); }
+  finally { connectionBusy = false; }
+  if (status?.connected) try { await restoreConnection(status); } catch (error) { connectionLabel(error.message, true); }
+}, 3000);
 initialize();

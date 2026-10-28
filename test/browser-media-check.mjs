@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as pause } from 'node:timers/promises';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -22,7 +22,7 @@ function wave() {
 test('sidebar stable, collage, messages groupés et médias dans un navigateur isolé', { skip: !existsSync(edge), timeout: 40_000 }, async () => {
   let proxy, browser, socket, messages = 0, sends = 0, videoBytes = Buffer.alloc(0), matrixError = true, failSourceB = true;
   const olderSources = [];
-  const sentBodies = [], uploads = [];
+  const sentBodies = [], uploads = []; let authorizations = 0, unavailable = false;
   const reads = []; let adamUnread = 2;
   const readFixtures = Array.from({ length: 45 }, (_, index) => ({ id: 'reading-' + index, senderID: 'contact', senderName: 'Contact', text: 'Message à lire ' + index, timestamp: new Date(1_700_000_000_000 + index * 1000).toISOString() }));
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6V00AAAAASUVORK5CYII=', 'base64'), wav = wave();
@@ -39,7 +39,15 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
   const mock = http.createServer(async (req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
     res.setHeader('Content-Type', 'application/json');
+    if (unavailable) { res.writeHead(503); return res.end('{}'); }
     if (path === '/v1/info') return res.end(JSON.stringify({ app: { version: 'fixture' } }));
+    if (path === '/oauth/register') return res.end(JSON.stringify({ client_id: 'fixture-client' }));
+    if (path === '/oauth/authorize') {
+      const query = new URL(req.url, 'http://fixture').searchParams;
+      const callback = new URL(query.get('redirect_uri')); callback.search = new URLSearchParams({ state: query.get('state'), code: 'approved' });
+      res.setHeader('Content-Type', 'text/html'); return res.end(`<a id="approve" href="${callback.href.replaceAll('&', '&amp;')}">Autoriser la simulation</a>`);
+    }
+    if (path === '/oauth/token') { authorizations++; return res.end(JSON.stringify({ access_token: 'browser-fixture' })); }
     if (req.headers.authorization !== 'Bearer browser-fixture') { res.statusCode = 401; return res.end('{}'); }
     if (path.endsWith('/read')) {
       const id = path.split('/')[3], chunks = []; for await (const chunk of req) chunks.push(chunk);
@@ -97,8 +105,10 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
   });
   mock.listen(0, '127.0.0.1'); await once(mock, 'listening');
   const port = await freePort(), debugPort = await freePort(), base = `http://127.0.0.1:${mock.address().port}`, origin = `http://127.0.0.1:${port}`;
+  const authFile = join(root, '.local', 'browser-auth-' + port + '.json');
+  const startProxy = () => spawn(process.execPath, ['server.mjs'], { cwd: root, env: { ...process.env, PORT: String(port), MSN_AUTH_FILE: authFile }, stdio: 'ignore', windowsHide: true });
   try {
-    proxy = spawn(process.execPath, ['server.mjs'], { cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore', windowsHide: true });
+    proxy = startProxy();
     await eventually(async () => (await fetch(origin)).ok);
     const artifacts = join(root, '.local'); await mkdir(artifacts, { recursive: true });
     browser = spawn(edge, ['--headless=new', '--disable-gpu', '--no-first-run', '--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${join(artifacts, 'browser-media-' + Date.now())}`, origin], { stdio: 'ignore', windowsHide: true });
@@ -106,16 +116,27 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     socket = new WebSocket(targets.webSocketDebuggerUrl); await once(socket, 'open');
     let id = 0; const pending = new Map(), exceptions = [];
     socket.addEventListener('message', event => { const message = JSON.parse(event.data); if (message.id && pending.has(message.id)) { const task = pending.get(message.id); pending.delete(message.id); message.error ? task.reject(new Error(message.error.message)) : task.resolve(message.result); } if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.text); });
-    function command(method, params = {}) { return new Promise((resolve, reject) => { const requestId = ++id; pending.set(requestId, { resolve, reject }); socket.send(JSON.stringify({ id: requestId, method, params })); }); }
-    async function evaluate(expression) { const result = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; }
+    function command(method, params = {}, sessionId) { return new Promise((resolve, reject) => { const requestId = ++id; pending.set(requestId, { resolve, reject }); socket.send(JSON.stringify({ id: requestId, method, params, sessionId })); }); }
+    async function evaluate(expression) { const result = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; }
     await command('Runtime.enable'); await command('Page.enable'); await command('Emulation.setDeviceMetricsOverride', { width: 1050, height: 900, deviceScaleFactor: 1, mobile: false });
     await eventually(() => evaluate('!!document.querySelector("#authorize-button")'));
     // Generate a real clip locally: no fixture download and no third-party media.
     const clip = await evaluate(`(async()=>{const canvas=document.createElement('canvas');canvas.width=160;canvas.height=90;const ctx=canvas.getContext('2d');const stream=canvas.captureStream(12);const recorder=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp8'});const chunks=[];recorder.ondataavailable=e=>chunks.push(e.data);const stopped=new Promise(resolve=>recorder.onstop=resolve);recorder.start();let frame=0;const timer=setInterval(()=>{ctx.fillStyle=frame++%2?'#499fe0':'#b7d9ef';ctx.fillRect(0,0,160,90);},80);await new Promise(resolve=>setTimeout(resolve,1800));recorder.stop();await stopped;clearInterval(timer);stream.getTracks().forEach(track=>track.stop());const bytes=new Uint8Array(await new Blob(chunks).arrayBuffer());return btoa(String.fromCharCode(...bytes));})()`);
     videoBytes = Buffer.from(clip, 'base64'); assert.ok(videoBytes.length > 100);
-    await evaluate(`fetch('/api/auth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base:${JSON.stringify(base)},token:'browser-fixture'})}).then(r=>r.json())`);
-    await command('Page.reload');
+    await evaluate(`document.querySelector('#api-url').value=${JSON.stringify(base)};document.querySelector('#authorize-button').click()`);
+    let popup = await eventually(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.url.startsWith(base + '/oauth/authorize')));
+    assert.equal(await evaluate('location.origin'), origin, 'MSN reste ouvert pendant l’autorisation');
+    await command('Target.closeTarget', { targetId: popup.id });
+    await eventually(() => evaluate('!document.querySelector("#authorize-button").disabled && document.querySelector("#settings-error").textContent.includes("fermée")'));
+    await evaluate('document.querySelector("#authorize-button").click()');
+    popup = await eventually(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.url.startsWith(base + '/oauth/authorize')));
+    const popupSession = await command('Target.attachToTarget', { targetId: popup.id, flatten: true });
+    await command('Runtime.evaluate', { expression: 'document.querySelector("#approve").click()' }, popupSession.sessionId);
     await eventually(() => evaluate('document.querySelectorAll(".message-photo").length===1 && document.querySelector(".message-photo").naturalWidth>0'));
+    assert.equal(await evaluate('document.querySelector("#settings-modal").hidden'), true, 'la liaison charge les conversations sans relancer ni recharger MSN');
+    await command('Page.bringToFront');
+    assert.equal(authorizations, 1);
+    if (process.platform === 'win32') assert.ok(!(await readFile(authFile, 'utf8')).includes('browser-fixture'));
     assert.equal(await evaluate('document.querySelectorAll(".link-preview").length'), 1);
     assert.equal(await evaluate('document.querySelector(".bubble a").href'), 'https://www.instagram.com/reel/fixture/');
     assert.equal(await evaluate('document.querySelectorAll(".message-meta:not([hidden])").length'), 4, 'un en-tête par série, expéditeur et journée');
@@ -273,6 +294,16 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     await evaluate('document.querySelector("#history-backdrop").click()');
     assert.equal(await evaluate('getComputedStyle(document.querySelector("#conversation-sidebar")).display'), 'none');
     assert.equal(await evaluate('document.documentElement.scrollWidth<=650'), true);
+    const stopped = once(proxy, 'exit'); proxy.kill(); await stopped;
+    proxy = startProxy(); await eventually(async () => (await fetch(origin)).ok);
+    await command('Network.clearBrowserCookies');
+    unavailable = true; await command('Page.reload');
+    await eventually(() => evaluate('document.querySelector("#connection-label").textContent.includes("503")'));
+    assert.equal(await evaluate('document.querySelector("#settings-modal").hidden'), true, 'Beeper indisponible ne redemande pas l’autorisation');
+    unavailable = false;
+    await eventually(() => evaluate('document.querySelector("#window-title").textContent.includes("Contact de démonstration") && document.querySelector("#settings-modal").hidden'));
+    assert.equal(authorizations, 1, 'redémarrage, nouveau cookie et retour de Beeper réutilisent la même clé');
+    assert.deepEqual(exceptions, []);
     await command('Browser.close').catch(() => {});
-  } finally { socket?.close(); browser?.kill(); proxy?.kill(); await new Promise(resolve => mock.close(resolve)); }
+  } finally { socket?.close(); browser?.kill(); if (proxy && proxy.exitCode === null) { const stopped = once(proxy, 'exit'); proxy.kill(); await stopped; } await new Promise(resolve => mock.close(resolve)); await rm(authFile, { force: true }); }
 });

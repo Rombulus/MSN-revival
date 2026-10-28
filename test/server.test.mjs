@@ -4,13 +4,25 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as pause } from 'node:timers/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 let mock, child, origin, base, cookie, authorization, sends = 0;
 const reads = [];
+let authDir, authFile, unavailable = false;
+async function startServer() {
+  child = spawn(process.execPath, ['server.mjs'], { cwd: new URL('..', import.meta.url), env: { ...process.env, PORT: new URL(origin).port, MSN_AUTH_FILE: authFile }, stdio: 'ignore', windowsHide: true });
+  for (let i = 0; i < 100; i++) { try { const response = await fetch(origin); if (!cookie) cookie = response.headers.get('set-cookie').split(';')[0]; return; } catch { await pause(50); } }
+  throw new Error('Serveur de test inaccessible');
+}
+async function restartServer() { const stopped = once(child, 'exit'); child.kill(); await stopped; await startServer(); }
 before(async () => {
+  authDir = await mkdtemp(join(tmpdir(), 'msn-auth-test-')); authFile = join(authDir, 'beeper-auth.json');
   mock = http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
     res.setHeader('Content-Type', 'application/json');
+    if (unavailable) { res.writeHead(503); return res.end('{}'); }
     if (req.url === '/v1/info') return res.end(JSON.stringify({ app: { version: 'mock' } }));
     if (req.url === '/oauth/register') {
       const input = JSON.parse(raw); assert.equal(input.client_name, 'MSN Revival'); assert.equal(input.token_endpoint_auth_method, 'none');
@@ -44,12 +56,14 @@ before(async () => {
   mock.listen(0, '127.0.0.1'); await once(mock, 'listening'); base = `http://127.0.0.1:${mock.address().port}`;
   const reservation = http.createServer(); reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening'); const port = reservation.address().port; await new Promise(resolve => reservation.close(resolve));
   origin = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, ['server.mjs'], { cwd: new URL('..', import.meta.url), env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
-  for (let i = 0; i < 100; i++) { try { const response = await fetch(origin); cookie = response.headers.get('set-cookie').split(';')[0]; return; } catch { await pause(50); } }
-  throw new Error('Serveur de test inaccessible');
+  await startServer();
 });
-after(async () => { child?.kill(); if (mock) await new Promise(resolve => mock.close(resolve)); });
-function call(path, options = {}) { return fetch(origin + path, { ...options, headers: { cookie, ...(options.body ? { 'Content-Type': 'application/json', Origin: origin } : {}), ...options.headers }, redirect: 'manual' }); }
+after(async () => { if (child && child.exitCode === null) { const stopped = once(child, 'exit'); child.kill(); await stopped; } if (mock) await new Promise(resolve => mock.close(resolve)); if (authDir) await rm(authDir, { recursive: true, force: true }); });
+async function call(path, options = {}) {
+  const response = await fetch(origin + path, { ...options, headers: { cookie, ...(options.body ? { 'Content-Type': 'application/json', Origin: origin } : {}), ...options.headers }, redirect: 'manual' });
+  if (response.headers.has('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
+  return response;
+}
 test('refuse une page externe et les hôtes non attendus', async () => {
   assert.equal((await call('/api/auth/start', { method: 'POST', body: '{}', headers: { Origin: 'https://evil.example' } })).status, 403);
   const hostStatus = await new Promise((resolve, reject) => { const req = http.get(origin + '/api/status', { headers: { Host: 'evil.example' } }, res => { res.resume(); resolve(res.statusCode); }); req.on('error', reject); });
@@ -81,6 +95,27 @@ test('charge les chats et transmet un envoi uniquement au serveur simulé', asyn
   const response = await call('/api/beeper/chats/chat-1/messages', { method: 'POST', body: JSON.stringify({ text: 'Test simulé' }) });
   assert.equal(response.status, 200); assert.equal(sends, 1);
 });
+test('retrouve l’autorisation OAuth après redémarrage et dans un nouveau profil navigateur', async () => {
+  const stored = await readFile(authFile, 'utf8');
+  if (process.platform === 'win32') { assert.equal(JSON.parse(stored).format, 'windows-dpapi'); assert.ok(!stored.includes('secret-test-token')); }
+  await restartServer();
+  assert.equal((await (await call('/api/status')).json()).connected, true);
+  const fresh = await fetch(origin + '/api/status');
+  assert.equal((await fresh.json()).connected, true);
+  const freshCookie = fresh.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(origin + '/api/beeper/accounts', { headers: { cookie: freshCookie } })).status, 200);
+});
+
+test('conserve l’autorisation pendant une indisponibilité de Beeper', async () => {
+  unavailable = true;
+  const status = await (await call('/api/status')).json(); assert.equal(status.connected, true); assert.equal(status.available, false);
+  assert.equal((await call('/api/beeper/accounts')).status, 503);
+  await restartServer();
+  assert.equal((await (await call('/api/status')).json()).connected, true);
+  unavailable = false;
+  assert.equal((await call('/api/beeper/accounts')).status, 200);
+});
+
 test('ne permet ni accès aux fichiers de travail ni actions de suppression', async () => {
   assert.equal((await call('/server.mjs')).status, 404);
   assert.equal((await call('/api/avatar?url=file:///C:/Windows/win.ini')).status, 404);
@@ -127,4 +162,15 @@ test('prépare un fichier sans l’envoyer, puis permet un envoi explicite', asy
 test('la déconnexion retire l’accès', async () => {
   assert.equal((await call('/api/logout', { method: 'POST', body: '{}' })).status, 200);
   assert.equal((await call('/api/beeper/chats')).status, 401);
+  await restartServer();
+  assert.equal((await (await call('/api/status')).json()).connected, false);
+});
+
+test('mémorise aussi une clé saisie manuellement et permet de l’oublier explicitement', async () => {
+  assert.equal((await call('/api/auth/token', { method: 'POST', body: JSON.stringify({ base, token: 'secret-test-token' }) })).status, 200);
+  await restartServer();
+  assert.equal((await call('/api/beeper/accounts')).status, 200);
+  await call('/api/logout', { method: 'POST', body: '{}' });
+  await restartServer();
+  assert.equal((await (await fetch(origin + '/api/status')).json()).connected, false);
 });
