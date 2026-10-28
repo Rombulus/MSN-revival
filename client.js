@@ -1,5 +1,5 @@
 import { conversationProfiles, networkIdentity, rosterGroups, historyEntries } from './profiles.mjs';
-import { linkify, webURL, renderAttachments, renderPreviews, continuesMessageGroup } from './media.mjs';
+import { linkify, webURL, renderAttachments, renderPreviews, matchInstagramReels, continuesMessageGroup } from './media.mjs';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const clock = value => value ? new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -198,7 +198,8 @@ function renderMessages(forceBottom = false) {
     if (node.dataset.signature !== signature && (!playing || message.isDeleted)) {
       node.className = `message-row ${message.isSender ? 'mine' : ''}`; node.dataset.signature = signature;
       const text = message.isDeleted ? '(Message supprimé)' : (message.text || (!message.attachments?.length && !message.links?.length ? '(Message sans texte)' : ''));
-      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div><div class="bubble">${richText(text)}</div>${message.isDeleted ? '' : renderAttachments(message) + renderPreviews(message, plain(message.text))}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : ''}</div>`;
+      const reels = matchInstagramReels(message, plain(message.text));
+      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div><div class="bubble">${richText(text)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : ''}</div>`;
       if (!message.localPending && message.sendStatus?.status?.startsWith('FAIL')) {
         const status = document.createElement('small'); status.className = 'send-state failed'; status.textContent = message.sendStatus.message || 'Le réseau a signalé un échec de l’envoi.'; node.firstElementChild.append(status);
       }

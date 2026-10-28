@@ -136,7 +136,12 @@ body { padding: 18px; background: radial-gradient(ellipse at 50% 0%, #b7d6f5, tr
 .attachment img, .message-video { display: block; width: auto; max-width: min(440px, 100%); max-height: 340px; object-fit: contain; background: #e3edf7; }
 .attachment-image .photo-open { overflow: hidden; border-radius: 3px; }
 .attachment-image .message-photo { max-width: min(440px, 100%); max-height: 340px; }
-.attachment-image:has(.message-photo[data-gif="true"]) { border-color: #83aacc; }
+.attachment-image.is-animated, .attachment-image.is-sticker { width: fit-content; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.attachment-image.is-animated .message-photo, .attachment-image.is-sticker .message-photo { background: transparent; }
+.attachment-image.is-animated .photo-open, .attachment-image.is-sticker .photo-open { border-radius: 0; }
+.attachment-image.has-reel { position: relative; }
+.reel-image-link { position: absolute; top: 9px; left: 9px; display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid #fff9; border-radius: 16px; background: #18334ad9; color: #fff !important; font: bold 10px Tahoma; text-decoration: none !important; text-shadow: 0 1px 2px #0008; box-shadow: 0 2px 7px #0003; }
+.reel-image-link:hover { background: #b93377ed; }
 .photo-open { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; max-width: 100%; }
 .message-audio { display: block; width: min(320px, 100%); height: 38px; }
 .attachment-audio { width: 330px; max-width: 100%; }
