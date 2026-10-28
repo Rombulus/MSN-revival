@@ -13,6 +13,7 @@ let chatsCursor = null, listBusy = false, syncBusy = false, soundOn = true, audi
 let accounts = [], accountsLoaded = false;
 let recording = null, recordingSequence = 0, draftAudioURL = null, draftImageURL = null;
 const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const senderColors = ['#007a2e', '#0055d4', '#ad006e', '#b34400', '#673ab7', '#00748a'];
 const collapsedRosterGroups = new Set();
 let historyUnreadOnly = false;
 let readTimer;
@@ -238,6 +239,8 @@ function renderMessages(forceBottom = false) {
       node.className = `message-row ${message.isSender ? 'mine' : ''}`; node.dataset.signature = signature;
       node.dataset.messageId = message.id || '';
       node.dataset.messageChat = message.chatID || chat.id;
+      let senderHash = 0; for (const char of (message.senderID || name)) senderHash = (senderHash * 31 + char.charCodeAt(0)) | 0;
+      node.style.setProperty('--sender-color', message.isSender ? '#b00072' : senderColors[(senderHash % senderColors.length + senderColors.length) % senderColors.length]);
       const text = message.isDeleted ? '(Message supprimé)' : (message.text || (!message.attachments?.length && !message.links?.length ? '(Message sans texte)' : ''));
       const reels = matchInstagramReels(message, plain(message.text));
       const replyTo = message.linkedMessageID ? replyQuote(message, chat) : '';

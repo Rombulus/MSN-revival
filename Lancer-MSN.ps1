@@ -19,6 +19,6 @@ $edgeCandidates = @((Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Applicat
 $edgePath = $edgeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if ($edgePath) {
   $profileDir = Join-Path $env:LOCALAPPDATA 'MSN Revival\Edge'
-  Start-Process -FilePath $edgePath -ArgumentList @(('--user-data-dir="' + $profileDir + '"'), ('--app=' + $clientUrl), '--window-size=1240,860')
+  Start-Process -FilePath $edgePath -ArgumentList @(('--user-data-dir="' + $profileDir + '"'), ('--app=' + $clientUrl), '--start-maximized')
 }
 else { Start-Process $clientUrl }
