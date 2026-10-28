@@ -66,3 +66,18 @@ export function rosterGroups(chats, query = '') {
   const compare = (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
   return [...groups.values()].sort((a, b) => a.id === 'favorites' ? -1 : b.id === 'favorites' ? 1 : compare(a, b)).map(group => ({ ...group, chats: group.chats.sort(compare) }));
 }
+
+export function historyEntries(chats, { query = '', unreadOnly = false, now = new Date() } = {}) {
+  const needle = rosterSearchText(query);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const week = new Date(today); week.setDate(today.getDate() - 7);
+  return chats.filter(chat => (!unreadOnly || chat.unread > 0 || chat.markedUnread) && (!needle || rosterSearchText(`${chat.name} ${chat.network} ${chat.previewText || ''}`).includes(needle)))
+    .map(chat => {
+      const date = new Date(chat.activityAt || chat.lastActivity || '');
+      const valid = Number.isFinite(date.getTime());
+      const historyGroup = !valid ? 'Sans date' : date >= today ? 'Aujourd’hui' : date >= yesterday ? 'Hier' : date >= week ? '7 derniers jours' : 'Plus anciennes';
+      const historyTime = !valid ? '' : date >= today ? date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : date >= yesterday ? 'Hier' : date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) });
+      return { ...chat, historyGroup, historyTime, activityTimestamp: valid ? date.getTime() : 0 };
+    }).sort((a, b) => b.activityTimestamp - a.activityTimestamp || a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+}

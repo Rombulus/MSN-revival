@@ -20,7 +20,8 @@ function wave() {
   return bytes;
 }
 test('photos, liens, pièces jointes et lecture continue dans un navigateur isolé', { skip: !existsSync(edge), timeout: 40_000 }, async () => {
-  let proxy, browser, socket, messages = 0, sends = 0, videoBytes = Buffer.alloc(0);
+  let proxy, browser, socket, messages = 0, sends = 0, videoBytes = Buffer.alloc(0), matrixError = true, failSourceB = true;
+  const olderSources = [];
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6V00AAAAASUVORK5CYII=', 'base64'), wav = wave();
   const fixtures = [
     { id: 'photo', text: 'Une photo reçue', attachments: [{ id: 'mxc://photo', type: 'img', mimeType: 'image/png', fileName: 'photo.png' }] },
@@ -35,12 +36,12 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     if (req.headers.authorization !== 'Bearer browser-fixture') { res.statusCode = 401; return res.end('{}'); }
     if (path === '/v1/accounts') return res.end(JSON.stringify([{ accountID: 'fixture', user: { fullName: 'Moi', imgURL: 'mxc://photo' } }]));
     if (path === '/v1/chats') return res.end(JSON.stringify({ items: [
-      { id: 'fixture-chat', accountID: 'fixture', type: 'single', title: 'Contact de démonstration', network: 'WhatsApp', imgURL: 'mxc://photo', labels: [{ id: 'friends', name: 'Amis' }], participants: { items: [] } },
-      { id: 'fixture-lea', title: 'Léa', network: 'Instagram', labels: [{ id: 'family', name: 'Famille' }] },
-      { id: 'fixture-adam', title: 'Adam', network: 'Telegram', labels: [{ id: 'friends', name: 'Amis' }], unreadCount: 2 },
-      { id: 'fixture-nina', title: 'Nina', network: 'Signal', labels: [{ id: 'friends', name: 'Amis' }] },
+      { id: 'fixture-chat', accountID: 'fixture', type: 'single', title: 'Contact de démonstration', network: 'WhatsApp', imgURL: 'mxc://photo', labels: [{ id: 'friends', name: 'Amis' }], participants: { items: [] }, lastActivity: new Date(Date.now() - 300_000).toISOString(), preview: { text: 'À tout à l’heure !', isSender: true, timestamp: new Date(Date.now() - 300_000).toISOString() } },
+      { id: 'fixture-lea', title: 'Léa', network: 'Instagram', labels: [{ id: 'family', name: 'Famille' }], lastActivity: new Date(Date.now() - 60_000).toISOString(), preview: { attachments: [{ type: 'img' }], timestamp: new Date(Date.now() - 60_000).toISOString() } },
+      { id: 'fixture-adam', title: 'Adam', network: 'Telegram', labels: [{ id: 'friends', name: 'Amis' }], unreadCount: 2, lastActivity: new Date(Date.now() - 7_200_000).toISOString(), preview: { text: 'On se retrouve demain ?', timestamp: new Date(Date.now() - 7_200_000).toISOString() } },
+      { id: 'fixture-nina', title: 'Nina', network: 'Beeper / Matrix', labels: [{ id: 'friends', name: 'Amis' }] },
       { id: 'fixture-julie', title: 'Julie', network: 'Messenger', labels: [{ id: 'family', name: 'Famille' }] },
-      { id: 'fixture-group', title: 'La bande', network: 'Discord', type: 'group' },
+      { id: 'fixture-group', title: 'La bande', network: 'Beeper / Matrix', type: 'group', merge: { chatIDs: ['member-a', 'member-b'] } },
     ], hasMore: false }));
     if (path === '/v1/assets/serve') {
       const source = new URL(req.url, 'http://fixture').searchParams.get('url'), bytes = source === 'mxc://sound' ? wav : source === 'mxc://video' ? videoBytes : png;
@@ -49,7 +50,18 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
       if (range) { const start = Number(range[1]), end = range[2] ? Math.min(bytes.length - 1, Number(range[2])) : bytes.length - 1; res.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${bytes.length}`, 'Content-Length': String(end - start + 1) }); return res.end(bytes.subarray(start, end + 1)); }
       res.setHeader('Content-Length', String(bytes.length)); return res.end(bytes);
     }
-    if (path.endsWith('/messages')) { if (req.method === 'POST') sends++; else messages++; return res.end(JSON.stringify({ items: fixtures, hasMore: false })); }
+    if (path.endsWith('/messages')) {
+      const id = path.split('/')[3], query = new URL(req.url, 'http://fixture').searchParams;
+      if (id === 'fixture-nina') { if (matrixError) { res.writeHead(503); return res.end('{}'); } return res.end(JSON.stringify({ items: [], hasMore: false })); }
+      if (id === 'fixture-group') { res.writeHead(500); return res.end('{}'); }
+      if (id === 'member-a' || id === 'member-b') {
+        if (id === 'member-b' && failSourceB) { res.writeHead(503); return res.end('{}'); }
+        if (query.has('cursor')) olderSources.push(id);
+        const older = query.has('cursor');
+        return res.end(JSON.stringify({ items: [{ id: older ? 'old' : 'shared-id', chatID: id, text: older ? 'Ancien message A' : id === 'member-a' ? 'Message source A' : 'Message source B', timestamp: new Date(1_700_000_000_000 + (older ? -1000 : id === 'member-a' ? 0 : 1000)).toISOString() }], hasMore: id === 'member-a' && !older, oldestCursor: id === 'member-a' && !older ? 'older-a' : undefined }));
+      }
+      if (req.method === 'POST') sends++; else messages++; return res.end(JSON.stringify({ items: fixtures, hasMore: false }));
+    }
     res.writeHead(404); res.end('{}');
   });
   mock.listen(0, '127.0.0.1'); await once(mock, 'listening');
@@ -79,6 +91,39 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     assert.equal(await evaluate('document.querySelector(".legacy-menu")'), null);
     assert.equal(await evaluate('document.querySelectorAll(".compose-tools > button").length'), 2);
     assert.equal(await evaluate('!!document.querySelector("#video-btn,#call-btn,#activities-btn,#games-btn,#sound-toggle")'), false);
+    assert.equal(await evaluate('document.querySelector(".history-chat").dataset.historyId'), 'fixture-lea');
+    assert.equal(await evaluate('document.querySelector(".history-chat .history-snippet").textContent'), 'Photo');
+    assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-chat"] .history-snippet').textContent`), 'Vous : À tout à l’heure !');
+    await evaluate('document.querySelector("#history-unread").click()');
+    assert.equal(await evaluate('document.querySelectorAll(".history-chat").length'), 1);
+    assert.equal(await evaluate('document.querySelector(".history-chat").dataset.historyId'), 'fixture-adam');
+    await evaluate('document.querySelector("#history-all").click();document.querySelector("#history-search").value="lea";document.querySelector("#history-search").dispatchEvent(new Event("input"))');
+    assert.equal(await evaluate('document.querySelectorAll(".history-chat").length'), 1);
+    await evaluate('document.querySelector("#history-search").value="";document.querySelector("#history-search").dispatchEvent(new Event("input"));document.querySelector("#message-input").value="Brouillon conservé";document.querySelector("#message-input").dispatchEvent(new Event("input"))');
+    await evaluate(`document.querySelector('[data-history-id="fixture-lea"]').click()`);
+    assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-chat"] .history-snippet').textContent`), 'Brouillon : Brouillon conservé');
+    await evaluate(`document.querySelector('[data-history-id="fixture-chat"]').click()`);
+    assert.equal(await evaluate('document.querySelector("#message-input").value'), 'Brouillon conservé');
+    await evaluate('document.querySelector("#message-input").value="";document.querySelector("#message-input").dispatchEvent(new Event("input"));document.querySelector("#history-collapse").click()');
+    assert.equal(await evaluate('getComputedStyle(document.querySelector("#conversation-sidebar")).display'), 'none');
+    await evaluate('document.querySelector("#history-toggle").click()');
+    await evaluate(`document.querySelector('[data-history-id="fixture-nina"]').click()`);
+    await eventually(() => evaluate('!!document.querySelector("[data-retry-history]")'));
+    assert.ok(await evaluate('document.querySelector("#messages").textContent.includes("Impossible de charger")'));
+    matrixError = false;
+    await evaluate('document.querySelector("[data-retry-history]").click()');
+    await eventually(() => evaluate('document.querySelector("#messages").textContent.includes("Beeper ne fournit aucun message visible")'));
+    await evaluate(`document.querySelector('[data-history-id="fixture-group"]').click()`);
+    await eventually(() => evaluate('document.querySelector("#messages").textContent.includes("Message source A") && !!document.querySelector("[data-retry-history]")'));
+    assert.ok(await evaluate('document.querySelector("#messages").textContent.includes("Une partie de l’historique")'));
+    failSourceB = false;
+    await evaluate('document.querySelector("[data-retry-history]").click()');
+    await eventually(() => evaluate('document.querySelectorAll(".message-row").length===2 && document.querySelector("#messages").textContent.includes("Message source B")'));
+    await evaluate('document.querySelector("#history-more").click()');
+    await eventually(() => evaluate('document.querySelectorAll(".message-row").length===3'));
+    assert.deepEqual(olderSources, ['member-a']);
+    await evaluate(`document.querySelector('[data-history-id="fixture-chat"]').click()`);
+    await eventually(() => evaluate('document.querySelectorAll(".message-photo").length===1'));
     await evaluate('document.querySelector("#invite-btn").click()');
     assert.equal(await evaluate('document.querySelectorAll(".roster-group").length'), 3);
     assert.equal(await evaluate(`document.querySelector('.roster-contact[data-id="fixture-chat"] use').getAttribute('href')`), 'assets/legacy-icons.svg#app-whatsapp');
@@ -129,6 +174,12 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     assert.equal(await evaluate('window.videoReference===document.querySelector("video") && !window.videoReference.paused && window.videoReference.played.length>0'), true, 'la vidéo est lisible et continue pendant la synchronisation');
     assert.deepEqual(exceptions, []);
     const screenshot = await command('Page.captureScreenshot', { format: 'png' }); await writeFile(join(artifacts, 'media-check.png'), Buffer.from(screenshot.data, 'base64'));
+    await command('Emulation.setDeviceMetricsOverride', { width: 650, height: 900, deviceScaleFactor: 1, mobile: false });
+    await pause(150);
+    assert.equal(await evaluate('document.querySelector("#history-backdrop").hidden'), false);
+    await evaluate('document.querySelector("#history-backdrop").click()');
+    assert.equal(await evaluate('getComputedStyle(document.querySelector("#conversation-sidebar")).display'), 'none');
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=650'), true);
     await command('Browser.close').catch(() => {});
   } finally { socket?.close(); browser?.kill(); proxy?.kill(); await new Promise(resolve => mock.close(resolve)); }
 });

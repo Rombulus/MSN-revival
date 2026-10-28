@@ -17,5 +17,5 @@ if (-not $running) {
 }
 $edgeCandidates = @((Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'), (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'))
 $edgePath = $edgeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if ($edgePath) { Start-Process -FilePath $edgePath -ArgumentList @('--app=' + $clientUrl, '--window-size=900,820') }
+if ($edgePath) { Start-Process -FilePath $edgePath -ArgumentList @('--app=' + $clientUrl, '--window-size=1240,860') }
 else { Start-Process $clientUrl }

@@ -1,4 +1,4 @@
-import { conversationProfiles, networkIdentity, rosterGroups } from './profiles.mjs';
+import { conversationProfiles, networkIdentity, rosterGroups, historyEntries } from './profiles.mjs';
 import { linkify, webURL, renderAttachments, renderPreviews } from './media.mjs';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -13,6 +13,7 @@ let chatsCursor = null, listBusy = false, syncBusy = false, soundOn = true, audi
 let accounts = [], accountsLoaded = false;
 let recording = null, recordingSequence = 0, draftAudioURL = null;
 const collapsedRosterGroups = new Set();
+let historyUnreadOnly = false;
 const seen = new Map();
 const current = () => chats.find(chat => chat.id === activeId);
 const plain = text => /<\/?[a-z][^>]*>/i.test(text || '') ? new DOMParser().parseFromString(text, 'text/html').body.textContent : (text || '');
@@ -56,12 +57,55 @@ function normalize(chat, previous) {
   const account = accounts.find(item => item.accountID === chat.accountID);
   return Object.assign(previous || {}, { id: chat.id, name: chat.title || 'Conversation', network: chat.network || 'Beeper', unread: chat.unreadCount || 0, avatar: profiles.contactPhoto, selfAvatar: profiles.selfPhoto, readOnly: !!chat.isReadOnly,
     selfName: profiles.selfName, accountID: chat.accountID, bridge: account?.bridge?.id, type: chat.type, pinned: !!chat.isPinned, labels: chat.labels || [],
+    preview: chat.preview, lastActivity: chat.lastActivity || chat.preview?.timestamp, markedUnread: !!chat.isMarkedUnread,
+    sourceChatIDs: [...new Set((chat.merge?.chatIDs || []).filter(id => typeof id === 'string' && id !== chat.id))], sourcePages: previous?.sourcePages || new Map(),
     messages: previous?.messages || [], pending: previous?.pending || [], draft: previous?.draft || '', oldestCursor: previous?.oldestCursor, hasMore: previous?.hasMore || false });
 }
 function renderContacts() {
   $('#contact-picker').innerHTML = chats.map(chat => `<option value="${esc(chat.id)}">${esc(chat.name)}${chat.unread ? ` (${chat.unread})` : ''} — ${esc(chat.network)}</option>`).join('');
   $('#contact-picker').value = activeId;
   renderRoster();
+  renderHistory();
+}
+function historySummary(chat) {
+  const candidates = [chat.preview, ...chat.messages.slice(-1), ...chat.pending].filter(message => message && !message.isHidden);
+  candidates.sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
+  const latest = candidates[0];
+  let preview = '', draft = false;
+  if (chat.draft?.trim()) { preview = 'Brouillon : ' + chat.draft; draft = true; }
+  else if (chat.file) { preview = 'Brouillon : ' + (chat.file.voiceNote ? 'Message vocal' : chat.file.name); draft = true; }
+  else if (latest) {
+    if (latest.failed) preview = 'Envoi non confirmé';
+    else if (latest.isDeleted) preview = 'Message supprimé';
+    else {
+      preview = plain(latest.text);
+      if (!preview && latest.attachments?.length) {
+        const file = latest.attachments[0]; preview = file.isVoiceNote ? 'Message vocal' : file.type === 'img' || file.mimeType?.startsWith('image/') ? 'Photo' : file.type === 'video' || file.mimeType?.startsWith('video/') ? 'Vidéo' : file.type === 'audio' || file.mimeType?.startsWith('audio/') ? 'Audio' : file.fileName || 'Pièce jointe';
+      }
+      if (!preview && latest.links?.length) preview = latest.links[0].title || 'Lien partagé';
+      if (latest.isSender) preview = 'Vous : ' + preview;
+      else if (chat.type === 'group' && latest.senderName) preview = latest.senderName + ' : ' + preview;
+    }
+  }
+  const dates = [chat.lastActivity, latest?.timestamp].filter(Boolean).sort((a, b) => (Date.parse(b) || 0) - (Date.parse(a) || 0));
+  return { ...chat, previewText: preview.replace(/\s+/g, ' ').trim().slice(0, 300) || 'Ouvrir la conversation', hasDraft: draft, activityAt: dates[0] };
+}
+function renderHistory() {
+  const list = $('#conversation-list'), scrollTop = list.scrollTop;
+  const focusedId = list.contains(document.activeElement) ? document.activeElement.closest('[data-history-id]')?.dataset.historyId : null;
+  const entries = historyEntries(chats.map(historySummary), { query: $('#history-search').value, unreadOnly: historyUnreadOnly });
+  let group = '';
+  list.innerHTML = entries.map(chat => {
+    const network = networkIdentity(chat), unread = chat.unread > 0 || chat.markedUnread;
+    const heading = group !== chat.historyGroup ? `<div class="history-day">${esc(chat.historyGroup)}</div>` : ''; group = chat.historyGroup;
+    return `${heading}<button class="history-chat${chat.id === activeId ? ' selected' : ''}${unread ? ' unread' : ''}" data-history-id="${esc(chat.id)}"${chat.id === activeId ? ' aria-current="true"' : ''} title="${esc(chat.name)} — ${esc(network.name)}"><svg class="network-logo network-${network.icon}" role="img" aria-label="${esc(network.name)}"><use href="assets/legacy-icons.svg#app-${network.icon}" /></svg><span class="history-chat-copy"><span class="history-chat-top"><strong>${esc(chat.name)}</strong><time title="${esc(chat.activityAt || '')}">${esc(chat.historyTime)}</time></span><span class="history-chat-bottom"><span class="history-snippet${chat.hasDraft ? ' is-draft' : ''}">${esc(chat.previewText)}</span>${unread ? `<span class="history-badge" aria-label="${chat.unread || 1} conversation ou messages non lus">${chat.unread || '●'}</span>` : ''}</span></span></button>`;
+  }).join('') || `<p class="history-empty">${$('#history-search').value.trim() ? 'Aucun résultat dans les conversations chargées.' : historyUnreadOnly ? 'Aucune conversation non lue.' : 'Aucune conversation récente.'}</p>`;
+  list.scrollTop = scrollTop;
+  if (focusedId) [...list.querySelectorAll('[data-history-id]')].find(button => button.dataset.historyId === focusedId)?.focus({ preventScroll: true });
+  $('#history-count').textContent = `${entries.length} affichée${entries.length > 1 ? 's' : ''} · ${chats.length} chargée${chats.length > 1 ? 's' : ''}`;
+  const unreadCount = chats.filter(chat => chat.unread > 0 || chat.markedUnread).length;
+  $('#history-unread-count').textContent = unreadCount ? `(${unreadCount})` : '';
+  $('#sidebar-more').hidden = !chatsCursor || !connected; $('#sidebar-more').disabled = listBusy;
 }
 function renderRoster() {
   const query = $('#contact-search').value;
@@ -110,7 +154,7 @@ function renderMessages(forceBottom = false) {
   for (const message of rows) {
     if (message.isHidden) continue;
     const name = message.isSender ? (chat.selfName || 'Moi') : (message.senderName || chat.name);
-    const key = String(message.localId || message.id), signature = JSON.stringify([name, message.text, message.attachments, message.links, message.isDeleted, message.failed, message.progress, message.localPending, message.sendStatus?.status, message.sendStatus?.message]);
+    const key = String(message.localId || message.sourceKey || message.id), signature = JSON.stringify([name, message.text, message.attachments, message.links, message.isDeleted, message.failed, message.progress, message.localPending, message.sendStatus?.status, message.sendStatus?.message]);
     let node = old.get(key); old.delete(key);
     if (!node) { node = document.createElement('article'); node.dataset.messageKey = key; }
     const playing = [...node.querySelectorAll('video,audio')].some(player => !player.paused && !player.ended);
@@ -126,7 +170,12 @@ function renderMessages(forceBottom = false) {
     position = node.nextElementSibling; count++;
   }
   for (const node of old.values()) node.remove();
-  if (!count) box.innerHTML = '<p class="system-note">Aucun message dans cette conversation.</p>';
+  if (!count) {
+    const text = chat.loading ? 'Chargement de l’historique…' : chat.loadError ? 'Impossible de charger l’historique.' : !connected && chat.id !== 'demo' ? 'Reconnecte Beeper pour charger cette conversation.' : chat.loaded ? 'Beeper ne fournit aucun message visible pour cette conversation.' : 'Chargement de la conversation…';
+    box.innerHTML = `<div class="history-message-state" role="status"><p>${esc(text)}</p>${chat.loadError ? `<small>${esc(chat.loadError)}</small><button data-retry-history>Réessayer</button>` : chat.loaded && /matrix/i.test(chat.network || '') ? '<small>Ce salon appartient au compte Beeper / Matrix. Un historique vide ici signifie que l’API n’en a renvoyé aucun.</small>' : ''}</div>`;
+  } else if (chat.loadError) {
+    const warning = document.createElement('div'); warning.className = 'history-message-state warning'; warning.innerHTML = `<p>${esc(chat.loadError)}</p><button data-retry-history>Réessayer</button>`; box.append(warning);
+  }
   box.dataset.follow = String(forceBottom || nearBottom);
   if (forceBottom || nearBottom) box.scrollTop = box.scrollHeight;
 }
@@ -141,6 +190,7 @@ function selectChat(id) {
 }
 async function loadChats(older = false) {
   if (listBusy) return; listBusy = true;
+  $('#sidebar-more').disabled = true; $('#roster-more').disabled = true;
   try {
     if (!accountsLoaded) { accounts = await beeper('/accounts'); accountsLoaded = true; }
     const query = new URLSearchParams({ limit: '100' }); if (older && chatsCursor) { query.set('cursor', chatsCursor); query.set('direction', 'before'); }
@@ -153,42 +203,59 @@ async function loadChats(older = false) {
       chats = [...incoming, ...[...previous.values()].filter(chat => !ids.has(chat.id))];
     }
     if (older || !chatsCursor) chatsCursor = result.hasMore ? result.oldestCursor : null;
-    if (!chats.length) { $('#contact-picker').innerHTML = ''; $('#messages').textContent = 'Aucune conversation disponible dans Beeper.'; $('#message-input').disabled = true; $('#send-btn').disabled = true; connectionLabel('Beeper connecté · aucune conversation'); return; }
+    if (!chats.length) { $('#contact-picker').innerHTML = ''; $('#messages').textContent = 'Aucune conversation disponible dans Beeper.'; $('#message-input').disabled = true; $('#send-btn').disabled = true; renderHistory(); connectionLabel('Beeper connecté · aucune conversation'); return; }
     const changed = !chats.some(chat => chat.id === activeId);
     if (changed) activeId = chats[0].id;
     renderContacts(); renderHeader();
     if (changed) { $('#message-input').value = current().draft; await syncMessages(current(), { forceBottom: true }); }
-    connectionLabel('Beeper connecté · messages synchronisés');
-  } finally { listBusy = false; }
+    if (!current()?.loadError) connectionLabel('Beeper connecté · messages synchronisés');
+  } finally { listBusy = false; $('#sidebar-more').disabled = false; $('#roster-more').disabled = false; }
 }
 async function syncMessages(chat, { older = false, forceBottom = false } = {}) {
-  if (!connected || !chat) return;
+  if (!connected || !chat || chat.loading) return;
+  chat.loading = true; chat.loadError = null;
+  if (activeId === chat.id && !chat.messages.length) renderMessages();
   try {
-    const query = new URLSearchParams(); if (older && chat.oldestCursor) { query.set('cursor', chat.oldestCursor); query.set('direction', 'before'); }
-    const result = await beeper(`/chats/${encodeURIComponent(chat.id)}/messages?${query}`);
+    chat.sourcePages ||= new Map();
+    const sourceIDs = chat.sourceChatIDs?.length ? chat.sourceChatIDs : [chat.id];
+    const sources = older ? sourceIDs.filter(id => chat.sourcePages.get(id)?.hasMore) : sourceIDs;
+    if (!sources.length) return;
+    const results = await Promise.allSettled(sources.map(async id => {
+      const query = new URLSearchParams(), page = chat.sourcePages.get(id);
+      if (older && page?.oldestCursor) { query.set('cursor', page.oldestCursor); query.set('direction', 'before'); }
+      const result = await beeper(`/chats/${encodeURIComponent(id)}/messages?${query}`);
+      if (older || !page) chat.sourcePages.set(id, { oldestCursor: result.oldestCursor, hasMore: !!result.hasMore });
+      return (result.items || []).map(message => ({ ...message, chatID: message.chatID || id, sourceKey: `${encodeURIComponent(message.chatID || id)}:${message.id}` }));
+    }));
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length === results.length) throw failures[0].reason;
+    chat.loaded = true;
+    if (failures.length) chat.loadError = 'Une partie de l’historique est indisponible : ' + failures[0].reason.message;
     const before = seen.get(chat.id);
-    const incoming = result.items || [];
-    const records = new Map(chat.messages.map(message => [message.id, message]));
-    for (const message of incoming) records.set(message.id, message);
+    const incoming = results.filter(result => result.status === 'fulfilled').flatMap(result => result.value);
+    const records = new Map(chat.messages.map(message => [message.sourceKey || `${encodeURIComponent(message.chatID || chat.id)}:${message.id}`, message]));
+    for (const message of incoming) records.set(message.sourceKey, message);
     chat.messages = [...records.values()].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp) || String(a.sortKey || '').localeCompare(String(b.sortKey || '')));
     const unpaired = [...incoming];
     chat.pending = chat.pending.filter(pending => {
-      const index = unpaired.findIndex(message => message.id === pending.id || (message.isSender && (pending.attachments?.length ? message.attachments?.some(file => file.fileName === pending.attachments[0].fileName && file.fileSize === pending.attachments[0].fileSize) : !!pending.text && plain(message.text) === pending.text) && new Date(message.timestamp) - new Date(pending.timestamp) >= -5000 && new Date(message.timestamp) - new Date(pending.timestamp) < 90_000));
+      const index = unpaired.findIndex(message => (message.id === pending.id && (!pending.sentChatID || pending.sentChatID === message.chatID)) || (message.isSender && (pending.attachments?.length ? message.attachments?.some(file => file.fileName === pending.attachments[0].fileName && file.fileSize === pending.attachments[0].fileSize) : !!pending.text && plain(message.text) === pending.text) && new Date(message.timestamp) - new Date(pending.timestamp) >= -5000 && new Date(message.timestamp) - new Date(pending.timestamp) < 90_000));
       if (index < 0) return true;
       unpaired.splice(index, 1); return false;
     });
-    if (older || !chat.oldestCursor) { chat.oldestCursor = result.oldestCursor; chat.hasMore = !!result.hasMore; }
+    chat.hasMore = sourceIDs.some(id => chat.sourcePages.get(id)?.hasMore);
     if (!older) {
-      if (before && incoming.some(message => !before.has(message.id) && !message.isSender && !message.isHidden)) chime();
-      seen.set(chat.id, new Set([...(before || []), ...incoming.map(message => message.id)]));
+      if (before && incoming.some(message => !before.has(message.sourceKey) && !message.isSender && !message.isHidden)) chime();
+      seen.set(chat.id, new Set([...(before || []), ...incoming.map(message => message.sourceKey)]));
     }
     if (activeId === chat.id) {
       const box = $('#messages'), oldHeight = box.scrollHeight, oldTop = box.scrollTop;
       renderMessages(forceBottom); $('#history-more').hidden = !chat.hasMore;
       if (older) box.scrollTop = box.scrollHeight - oldHeight + oldTop;
     }
-    connectionLabel('Beeper connecté · messages synchronisés');
-  } catch (error) { connectionLabel(error.message, true); if (error.status === 401) { connected = false; cancelRecording(); renderHeader(); openSettings(); } }
+    renderHistory();
+    if (activeId === chat.id) connectionLabel(chat.loadError || 'Beeper connecté · messages synchronisés', !!chat.loadError);
+  } catch (error) { chat.loadError = error.message; if (activeId === chat.id) connectionLabel(error.message, true); if (error.status === 401) { connected = false; cancelRecording(); renderHeader(); openSettings(); } }
+  finally { chat.loading = false; if (activeId === chat.id) renderMessages(forceBottom); }
 }
 async function sendMessage(existing) {
   const chat = current(); if (!chat || chat.readOnly || sending || recording) return;
@@ -200,6 +267,7 @@ async function sendMessage(existing) {
   pending.failed = false;
   if (!existing) { chat.pending.push(pending); chat.draft = ''; chat.file = null; $('#message-input').value = ''; renderAttachmentDraft(); }
   renderMessages(true);
+  renderHistory();
   try {
     if (connected) {
       if (pending.file && !pending.uploadID) {
@@ -209,10 +277,11 @@ async function sendMessage(existing) {
       pending.progress = 'Transmission à Beeper…';
       const result = await beeper(`/chats/${encodeURIComponent(chat.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, ...(pending.uploadID ? { attachment: { uploadID: pending.uploadID } } : {}) }) });
       pending.id = result.pendingMessageID;
+      pending.sentChatID = result.chatID;
       await syncMessages(chat);
     } else { chat.messages.push({ ...pending, id: pending.localId, localPending: false }); chat.pending = chat.pending.filter(item => item !== pending); }
   } catch (error) { pending.failed = true; toast(error.message); }
-  finally { sending = false; renderHeader(); if (activeId === chat.id) renderMessages(true); }
+  finally { sending = false; renderHeader(); renderHistory(); if (activeId === chat.id) renderMessages(true); }
 }
 function uploadFile(file, progress) {
   return new Promise((resolve, reject) => {
@@ -231,6 +300,7 @@ function renderAttachmentDraft() {
   const audio = $('#draft-audio'); audio.pause(); audio.removeAttribute('src'); audio.hidden = true;
   if (draftAudioURL) { URL.revokeObjectURL(draftAudioURL); draftAudioURL = null; }
   if (file?.voiceNote) { draftAudioURL = URL.createObjectURL(file); audio.src = draftAudioURL; audio.hidden = false; }
+  renderHistory();
 }
 function closeEmojis() { $('#emoji-picker').hidden = true; $('#emoji-btn').setAttribute('aria-expanded', 'false'); }
 const emojis = [['😀','Sourire'],['😄','Grand sourire'],['😂','Rire'],['😊','Content'],['😉','Clin d’œil'],['😍','Amoureux'],['😘','Bisou'],['😎','Cool'],['🤔','Réflexion'],['😅','Gêné'],['🥲','Sourire ému'],['😭','Pleurer'],['😮','Surpris'],['😡','En colère'],['🙃','À l’envers'],['😴','Fatigué'],['❤️','Cœur'],['💔','Cœur brisé'],['👍','Pouce levé'],['👎','Pouce baissé'],['🙏','Merci'],['🔥','Feu'],['🎉','Fête'],['👋','Salut']];
@@ -238,7 +308,7 @@ $('#emoji-picker').innerHTML = emojis.map(([emoji, label]) => `<button type="but
 $('#emoji-btn').addEventListener('click', () => { const show = $('#emoji-picker').hidden; $('#emoji-picker').hidden = !show; $('#emoji-btn').setAttribute('aria-expanded', String(show)); if (show) $('#emoji-picker button').focus(); });
 $('#emoji-picker').addEventListener('click', event => {
   const button = event.target.closest('[data-emoji]'), input = $('#message-input'); if (!button || input.disabled || !current()) return;
-  input.setRangeText(button.dataset.emoji, input.selectionStart, input.selectionEnd, 'end'); current().draft = input.value; closeEmojis(); input.focus();
+  input.setRangeText(button.dataset.emoji, input.selectionStart, input.selectionEnd, 'end'); current().draft = input.value; renderHistory(); closeEmojis(); input.focus();
 });
 document.addEventListener('click', event => { if (!event.target.closest('.compose-tools')) closeEmojis(); });
 
@@ -340,10 +410,34 @@ $('#roster-list').addEventListener('toggle', event => {
   if (group.open) collapsedRosterGroups.delete(group.dataset.group); else collapsedRosterGroups.add(group.dataset.group);
 }, true);
 $('#roster-more').addEventListener('click', () => loadChats(true).catch(error => toast(error.message)));
+$('#sidebar-more').addEventListener('click', () => loadChats(true).catch(error => toast(error.message)));
+$('#history-search').addEventListener('input', () => { $('#conversation-list').scrollTop = 0; renderHistory(); });
+$('#conversation-list').addEventListener('click', event => { const row = event.target.closest('[data-history-id]'); if (row) { selectChat(row.dataset.historyId); if (matchMedia('(max-width: 760px)').matches) setHistoryVisible(false); } });
+function setHistoryTab(unread) {
+  historyUnreadOnly = unread;
+  for (const [id, selected] of [['history-all', !unread], ['history-unread', unread]]) { $('#' + id).setAttribute('aria-selected', String(selected)); $('#' + id).tabIndex = selected ? 0 : -1; }
+  $('#conversation-list').setAttribute('aria-labelledby', unread ? 'history-unread' : 'history-all');
+  $('#conversation-list').scrollTop = 0; renderHistory();
+}
+$('#history-all').addEventListener('click', () => setHistoryTab(false)); $('#history-unread').addEventListener('click', () => setHistoryTab(true));
+$('.history-tabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault(); const unread = event.key === 'Home' ? false : event.key === 'End' ? true : !historyUnreadOnly; setHistoryTab(unread); $(unread ? '#history-unread' : '#history-all').focus();
+});
+function setHistoryVisible(visible) {
+  $('.legacy-layout').classList.toggle('history-hidden', !visible); $('#history-toggle').setAttribute('aria-expanded', String(visible));
+  $('#history-backdrop').hidden = !visible || !matchMedia('(max-width: 760px)').matches;
+}
+$('#history-toggle').addEventListener('click', () => setHistoryVisible($('.legacy-layout').classList.contains('history-hidden')));
+$('#history-collapse').addEventListener('click', () => { setHistoryVisible(false); $('#history-toggle').focus(); });
+$('#history-backdrop').addEventListener('click', () => setHistoryVisible(false));
+window.addEventListener('resize', () => { $('#history-backdrop').hidden = $('.legacy-layout').classList.contains('history-hidden') || !matchMedia('(max-width: 760px)').matches; });
+setHistoryVisible(!matchMedia('(max-width: 760px)').matches);
 $('#history-more').addEventListener('click', async event => { event.target.disabled = true; await syncMessages(current(), { older: true }); event.target.disabled = false; });
 $('#send-btn').addEventListener('click', () => sendMessage());
 $('#messages').addEventListener('click', event => { const button = event.target.closest('[data-retry]'); if (button) sendMessage(current().pending.find(item => item.localId === button.dataset.retry)); });
-$('#message-input').addEventListener('input', () => { if (current()) current().draft = $('#message-input').value; });
+$('#messages').addEventListener('click', event => { if (event.target.closest('[data-retry-history]')) syncMessages(current(), { forceBottom: true }); });
+$('#message-input').addEventListener('input', () => { if (current()) current().draft = $('#message-input').value; renderHistory(); });
 $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendMessage(); } });
 $('#settings-bottom').addEventListener('click', openSettings);
 $('#settings-close').addEventListener('click', () => { $('#settings-modal').hidden = true; });
