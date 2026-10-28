@@ -186,7 +186,11 @@ function ownReactionIDs(chat) {
 }
 function messageActions(message, chat) {
   if (!connected || chat.readOnly || chat.id === 'demo' || message.localPending || !message.id || message.isDeleted) return '';
-  const ownIDs = ownReactionIDs(chat);
+  const sourceID = message.chatID || chat.id;
+  const picker = quickReactions.map(emoji => `<button data-message-reaction="${esc(emoji)}" aria-label="Réagir ${esc(emoji)}">${esc(emoji)}</button>`).join('');
+  return `<div class="message-actions"><button class="message-action-icon" data-reply-message="${esc(message.id)}" data-reply-chat="${esc(sourceID)}" title="Répondre" aria-label="Répondre à ce message">↩</button><div class="message-react-control"><button class="message-action-icon" data-toggle-reactions aria-expanded="false" aria-label="Réagir au message" title="Réagir">☺</button><div class="message-reaction-picker" hidden>${picker}</div></div></div>`;
+}
+function messageReactionsMarkup(message, chat) {
   const grouped = new Map();
   for (const reaction of message.reactions || []) {
     const key = reaction.reactionKey; if (typeof key !== 'string' || !key) continue;
@@ -197,9 +201,7 @@ function messageActions(message, chat) {
     const mine = group.some(reaction => ownIDs.has(reaction.participantID));
     return `<button class="message-reaction${mine ? ' mine' : ''}" data-message-reaction="${esc(key)}" aria-label="${group.length} réaction${group.length === 1 ? '' : 's'} ${esc(label)}${mine ? ', toi aussi' : ''}" aria-pressed="${mine}">${esc(label)} <span>${group.length}</span></button>`;
   }).join('');
-  const sourceID = message.chatID || chat.id;
-  const picker = quickReactions.map(emoji => `<button data-message-reaction="${esc(emoji)}" aria-label="Réagir ${esc(emoji)}">${esc(emoji)}</button>`).join('');
-  return `<div class="message-social">${reactionButtons ? `<div class="message-reactions">${reactionButtons}</div>` : ''}<div class="message-actions"><button data-reply-message="${esc(message.id)}" data-reply-chat="${esc(sourceID)}">↩ Répondre</button><div class="message-react-control"><button data-toggle-reactions aria-expanded="false" aria-label="Réagir au message">☺ Réagir</button><div class="message-reaction-picker" hidden>${picker}</div></div></div></div>`;
+  return reactionButtons ? `<div class="message-reactions">${reactionButtons}</div>` : '';
 }
 function replyQuote(message, chat) {
   if (!message.linkedMessageID) return '';
@@ -239,7 +241,7 @@ function renderMessages(forceBottom = false) {
       const text = message.isDeleted ? '(Message supprimé)' : (message.text || (!message.attachments?.length && !message.links?.length ? '(Message sans texte)' : ''));
       const reels = matchInstagramReels(message, plain(message.text));
       const replyTo = message.linkedMessageID ? replyQuote(message, chat) : '';
-      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div>${replyTo}<div class="bubble">${richText(text)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageActions(message, chat)}</div>`;
+      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div>${replyTo}<div class="message-line"><div class="bubble">${richText(text)}</div>${messageActions(message, chat)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageReactionsMarkup(message, chat)}</div>`;
       if (!message.localPending && message.sendStatus?.status?.startsWith('FAIL')) {
         const status = document.createElement('small'); status.className = 'send-state failed'; status.textContent = message.sendStatus.message || 'Le réseau a signalé un échec de l’envoi.'; node.firstElementChild.append(status);
       }
