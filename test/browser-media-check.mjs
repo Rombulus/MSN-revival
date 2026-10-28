@@ -23,6 +23,8 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
   let proxy, browser, socket, messages = 0, sends = 0, videoBytes = Buffer.alloc(0), matrixError = true, failSourceB = true;
   const olderSources = [];
   const sentBodies = [], uploads = [];
+  const reads = []; let adamUnread = 2;
+  const readFixtures = Array.from({ length: 45 }, (_, index) => ({ id: 'reading-' + index, senderID: 'contact', senderName: 'Contact', text: 'Message à lire ' + index, timestamp: new Date(1_700_000_000_000 + index * 1000).toISOString() }));
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6V00AAAAASUVORK5CYII=', 'base64'), wav = wave();
   const fixtures = [
     { id: 'photo', text: 'Une photo reçue', attachments: [{ id: 'mxc://photo', type: 'img', mimeType: 'image/png', fileName: 'photo.png' }] },
@@ -39,6 +41,19 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     res.setHeader('Content-Type', 'application/json');
     if (path === '/v1/info') return res.end(JSON.stringify({ app: { version: 'fixture' } }));
     if (req.headers.authorization !== 'Bearer browser-fixture') { res.statusCode = 401; return res.end('{}'); }
+    if (path.endsWith('/read')) {
+      const id = path.split('/')[3], chunks = []; for await (const chunk of req) chunks.push(chunk);
+      reads.push({ id, ...JSON.parse(Buffer.concat(chunks).toString()) });
+      if (id === 'fixture-julie') { res.writeHead(503); return res.end('{}'); }
+      if (id === 'fixture-adam') {
+        if (reads.at(-1).messageID === 'reading-44') {
+          adamUnread = 1;
+          readFixtures.push({ ...readFixtures.at(-1), id: 'reading-45', text: 'Nouveau message arrivé pendant la lecture', timestamp: new Date(1_700_000_045_000).toISOString() });
+        } else adamUnread = 0;
+        return res.end(JSON.stringify({ id, unreadCount: adamUnread, isMarkedUnread: false }));
+      }
+      return res.end(JSON.stringify({ id, unreadCount: 0, isMarkedUnread: false }));
+    }
     if (path === '/v1/assets/upload') {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
       uploads.push(Buffer.concat(chunks)); return res.end(JSON.stringify({ uploadID: 'pasted-image' }));
@@ -47,9 +62,9 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     if (path === '/v1/chats') return res.end(JSON.stringify({ items: [
       { id: 'fixture-chat', accountID: 'fixture', type: 'single', title: 'Contact de démonstration', network: 'WhatsApp', imgURL: 'mxc://photo', labels: [{ id: 'friends', name: 'Amis' }], participants: { items: [] }, lastActivity: new Date(Date.now() - 300_000).toISOString(), preview: { text: 'À tout à l’heure !', isSender: true, timestamp: new Date(Date.now() - 300_000).toISOString() } },
       { id: 'fixture-lea', title: 'Léa', network: 'Instagram', labels: [{ id: 'family', name: 'Famille' }], lastActivity: new Date(Date.now() - 60_000).toISOString(), preview: { attachments: [{ type: 'img' }], timestamp: new Date(Date.now() - 60_000).toISOString() } },
-      { id: 'fixture-adam', title: 'Adam', network: 'Telegram', labels: [{ id: 'friends', name: 'Amis' }], unreadCount: 2, lastActivity: new Date(Date.now() - 7_200_000).toISOString(), preview: { text: 'On se retrouve demain ?', timestamp: new Date(Date.now() - 7_200_000).toISOString() } },
+      { id: 'fixture-adam', title: 'Adam', network: 'Telegram', labels: [{ id: 'friends', name: 'Amis' }], unreadCount: adamUnread, lastActivity: new Date(Date.now() - 7_200_000).toISOString(), preview: { text: 'On se retrouve demain ?', timestamp: new Date(Date.now() - 7_200_000).toISOString() } },
       { id: 'fixture-nina', title: 'Nina', network: 'Beeper / Matrix', labels: [{ id: 'friends', name: 'Amis' }] },
-      { id: 'fixture-julie', title: 'Julie', network: 'Messenger', labels: [{ id: 'family', name: 'Famille' }] },
+      { id: 'fixture-julie', title: 'Julie', network: 'Messenger', isMarkedUnread: true, labels: [{ id: 'family', name: 'Famille' }] },
       { id: 'fixture-group', title: 'La bande', network: 'Beeper / Matrix', type: 'group', merge: { chatIDs: ['member-a', 'member-b'] } },
     ], hasMore: false }));
     if (path === '/v1/assets/serve') {
@@ -61,6 +76,7 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     }
     if (path.endsWith('/messages')) {
       const id = path.split('/')[3], query = new URL(req.url, 'http://fixture').searchParams;
+      if (id === 'fixture-adam' || id === 'fixture-julie') return res.end(JSON.stringify({ items: readFixtures, hasMore: false }));
       if (id === 'fixture-nina') { if (matrixError) { res.writeHead(503); return res.end('{}'); } return res.end(JSON.stringify({ items: [], hasMore: false })); }
       if (id === 'fixture-group') { res.writeHead(500); return res.end('{}'); }
       if (id === 'member-a' || id === 'member-b') {
@@ -112,7 +128,7 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     assert.equal(await evaluate('document.querySelector(".history-chat .history-snippet").textContent'), 'Photo');
     assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-chat"] .history-snippet').textContent`), 'Vous : À tout à l’heure !');
     await evaluate('document.querySelector("#history-unread").click()');
-    assert.equal(await evaluate('document.querySelectorAll(".history-chat").length'), 1);
+    assert.equal(await evaluate('document.querySelectorAll(".history-chat").length'), 2);
     assert.equal(await evaluate('document.querySelector(".history-chat").dataset.historyId'), 'fixture-adam');
     await evaluate('document.querySelector("#history-all").click();document.querySelector("#history-search").value="lea";document.querySelector("#history-search").dispatchEvent(new Event("input"))');
     assert.equal(await evaluate('document.querySelectorAll(".history-chat").length'), 1);
@@ -143,6 +159,9 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     await evaluate('document.querySelector("#history-more").click()');
     await eventually(() => evaluate('document.querySelectorAll(".message-row").length===3'));
     assert.deepEqual(olderSources, ['member-a']);
+    await eventually(() => reads.some(read => read.id === 'member-a') && reads.some(read => read.id === 'member-b'));
+    assert.ok(reads.filter(read => read.id.startsWith('member-')).every(read => read.messageID === 'shared-id'), 'chaque source fusionnée reçoit son propre dernier ID');
+    assert.equal(reads.some(read => read.id === 'fixture-group'), false);
     await evaluate(`document.querySelector('[data-history-id="fixture-chat"]').click()`);
     await eventually(() => evaluate('document.querySelectorAll(".message-photo").length===1'));
     await evaluate('document.querySelector("#invite-btn").click()');
@@ -159,6 +178,33 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     await evaluate(`document.querySelector('[data-group="label:friends"] summary').click()`);
     const rosterShot = await command('Page.captureScreenshot', { format: 'png' }); await writeFile(join(artifacts, 'roster-check.png'), Buffer.from(rosterShot.data, 'base64'));
     await evaluate('document.querySelector("#contacts-close").click()');
+    // Reading requires the loaded end of the active conversation and an active window.
+    await evaluate(`Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>false});document.querySelector('[data-history-id="fixture-adam"]').click()`);
+    await eventually(() => evaluate('document.querySelectorAll(".message-row").length===45'));
+    await evaluate(`{const box=document.querySelector('#messages');box.style.scrollBehavior='auto';box.scrollTop=box.scrollHeight;box.dispatchEvent(new Event('scroll'));}`);
+    await pause(350);
+    assert.equal(reads.some(read => read.id === 'fixture-adam'), false, 'une fenêtre inactive ne marque pas comme lu');
+    await evaluate(`{const box=document.querySelector('#messages');box.scrollTop=0;box.dispatchEvent(new Event('scroll'));delete document.hasFocus;window.dispatchEvent(new Event('focus'));}`);
+    await pause(350);
+    assert.equal(reads.some(read => read.id === 'fixture-adam'), false, 'lire un ancien passage ne marque pas les nouveaux messages comme lus');
+    assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-adam"] .history-badge').textContent`), '2');
+    await evaluate(`{const box=document.querySelector('#messages');box.scrollTop=box.scrollHeight;box.dispatchEvent(new Event('scroll'));}`);
+    await eventually(() => evaluate(`document.querySelector('[data-history-id="fixture-adam"] .history-badge').textContent==='1'`));
+    assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-adam"] .history-badge').hidden`), false, 'un message arrivé pendant la requête reste non lu jusqu’à son affichage');
+    await eventually(() => evaluate(`document.querySelector('[data-history-id="fixture-adam"] .history-badge').hidden`));
+    assert.deepEqual(reads.filter(read => read.id === 'fixture-adam'), [{ id: 'fixture-adam', messageID: 'reading-44' }, { id: 'fixture-adam', messageID: 'reading-45' }]);
+    assert.equal(adamUnread, 0);
+    assert.equal(await evaluate('document.querySelector("#history-unread-count").textContent'), '(1)');
+    assert.equal(await evaluate(`document.querySelector('.roster-contact[data-id="fixture-adam"] em')`), null);
+    assert.equal(await evaluate(`document.querySelector('#contact-picker option[value="fixture-adam"]').textContent.includes('(2)')`), false);
+    await evaluate(`document.querySelector('#history-unread').click()`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-history-id="fixture-adam"]')`), false, 'la conversation lue quitte le filtre Non lus');
+    await evaluate(`document.querySelector('#history-all').click();document.querySelector('[data-history-id="fixture-julie"]').click()`);
+    await eventually(() => reads.some(read => read.id === 'fixture-julie'));
+    await eventually(() => evaluate('document.querySelector("#toast").textContent.includes("Lecture non synchronisée")'));
+    assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-julie"] .history-badge').hidden`), false, 'un échec conserve le non-lu');
+    await evaluate(`document.querySelector('[data-history-id="fixture-chat"]').click()`);
+    await eventually(() => evaluate('document.querySelectorAll(".message-photo").length===1'));
     await evaluate('document.querySelector("#emoji-btn").click()');
     assert.equal(await evaluate('document.querySelector("#emoji-btn").getAttribute("aria-expanded")'), 'true');
     await evaluate(`document.querySelector('[data-emoji="❤️"]').click()`);
@@ -219,6 +265,7 @@ test('sidebar stable, collage, messages groupés et médias dans un navigateur i
     assert.ok(uploads[0].includes(png), 'les octets de l’image collée arrivent au serveur simulé');
     assert.equal(await evaluate('document.querySelector("#attachment-draft").hidden && document.querySelector("#message-input").value===""'), true);
     assert.deepEqual(exceptions, []);
+    assert.equal(reads.filter(read => read.id === 'fixture-adam').length, 2, 'les rendus suivants ne répètent pas l’accusé de lecture');
     const screenshot = await command('Page.captureScreenshot', { format: 'png' }); await writeFile(join(artifacts, 'media-check.png'), Buffer.from(screenshot.data, 'base64'));
     await command('Emulation.setDeviceMetricsOverride', { width: 650, height: 900, deviceScaleFactor: 1, mobile: false });
     await pause(150);

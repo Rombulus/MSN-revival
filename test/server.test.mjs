@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { setTimeout as pause } from 'node:timers/promises';
 
 let mock, child, origin, base, cookie, authorization, sends = 0;
+const reads = [];
 before(async () => {
   mock = http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
@@ -20,6 +21,9 @@ before(async () => {
       return res.end(JSON.stringify({ access_token: 'secret-test-token' }));
     }
     if (req.headers.authorization !== 'Bearer secret-test-token') { res.statusCode = 401; return res.end('{}'); }
+    if (req.url.split('?')[0] === '/v1/chats/chat-1/read' && req.method === 'POST') {
+      reads.push(JSON.parse(raw)); return res.end(JSON.stringify({ id: 'chat-1', unreadCount: 0, isMarkedUnread: false }));
+    }
     if (req.url.split('?')[0] === '/v1/accounts') return res.end(JSON.stringify([{ accountID: 'a', user: { imgURL: 'mxc://me' } }]));
     if (req.url === '/v1/assets/upload') { assert.match(req.headers['content-type'], /multipart\/form-data/); assert.match(raw, /name="file"/); return res.end(JSON.stringify({ uploadID: 'upload-test' })); }
     if (req.url.split('?')[0] === '/v1/chats/chat-1/messages' && req.method === 'GET') return res.end(JSON.stringify({ items: [{ id: 'msg-media', attachments: [{ id: 'mxc://video', type: 'video', mimeType: 'video/mp4', fileName: 'vidéo.mp4' }, { id: 'mxc://html', type: 'unknown', fileName: 'document.html' }], links: [{ url: 'https://www.instagram.com/reel/demo/', title: 'Reel', img: 'mxc://preview' }] }], hasMore: false }));
@@ -53,6 +57,7 @@ test('refuse une page externe et les hôtes non attendus', async () => {
 });
 test('refuse les messages sans autorisation', async () => {
   assert.equal((await call('/api/beeper/chats/chat-1/messages', { method: 'POST', body: JSON.stringify({ text: 'Test simulé' }) })).status, 401);
+  assert.equal((await call('/api/beeper/chats/chat-1/read', { method: 'POST', body: '{}' })).status, 401);
   assert.equal(sends, 0);
 });
 test('refuse les adresses API distantes', async () => {
@@ -80,6 +85,17 @@ test('ne permet ni accès aux fichiers de travail ni actions de suppression', as
   assert.equal((await call('/server.mjs')).status, 404);
   assert.equal((await call('/api/avatar?url=file:///C:/Windows/win.ini')).status, 404);
   assert.equal((await call('/api/beeper/chats/chat-1', { method: 'DELETE' })).status, 404);
+});
+
+test('synchronise la lecture jusqu’au message affiché et garde les autres opérations fermées', async () => {
+  const response = await call('/api/beeper/chats/chat-1/read', { method: 'POST', body: JSON.stringify({ messageID: 'last-visible', ignored: 'not forwarded' }) });
+  assert.equal(response.status, 200); assert.equal((await response.json()).unreadCount, 0);
+  assert.deepEqual(reads, [{ messageID: 'last-visible' }]);
+  assert.equal((await call('/api/beeper/chats/chat-1/read', { method: 'POST', body: '{"messageID":42}' })).status, 400);
+  assert.equal((await call('/api/beeper/chats/chat-1/read')).status, 404);
+  assert.equal((await call('/api/beeper/chats/chat-1/unread', { method: 'POST', body: '{}' })).status, 404);
+  assert.equal((await call('/api/beeper/chats/chat-1/read', { method: 'POST', body: '{}', headers: { Origin: 'https://evil.example' } })).status, 403);
+  assert.equal(reads.length, 1);
 });
 test('sert ma photo fournie par les comptes, même si Beeper utilise octet-stream', async () => {
   const accounts = await (await call('/api/beeper/accounts')).json(); assert.equal(accounts[0].accountID, 'a');

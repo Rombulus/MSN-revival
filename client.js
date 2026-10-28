@@ -14,6 +14,7 @@ let accounts = [], accountsLoaded = false;
 let recording = null, recordingSequence = 0, draftAudioURL = null, draftImageURL = null;
 const collapsedRosterGroups = new Set();
 let historyUnreadOnly = false;
+let readTimer;
 const seen = new Map();
 const current = () => chats.find(chat => chat.id === activeId);
 const plain = text => /<\/?[a-z][^>]*>/i.test(text || '') ? new DOMParser().parseFromString(text, 'text/html').body.textContent : (text || '');
@@ -218,6 +219,42 @@ function renderMessages(forceBottom = false) {
   }
   box.dataset.follow = String(forceBottom || nearBottom);
   if (forceBottom || nearBottom) box.scrollTop = box.scrollHeight;
+  scheduleRead();
+}
+function readTargets(chat) {
+  const latest = new Map();
+  for (const message of chat.messages) {
+    if (!message.isHidden && message.id && !message.localPending) latest.set(message.chatID || chat.id, message.id);
+  }
+  return [...latest].sort(([a], [b]) => a.localeCompare(b));
+}
+const unreadSnapshot = chat => JSON.stringify([chat.unread, chat.markedUnread, chat.preview?.id, chat.preview?.timestamp, chat.lastActivity]);
+function scheduleRead() { clearTimeout(readTimer); readTimer = setTimeout(markVisibleRead, 250); }
+async function markVisibleRead() {
+  const chat = current(), box = $('#messages');
+  if (!connected || !chat?.loaded || chat.loading || chat.loadError || chat.readPending || Date.now() < (chat.readRetryAt || 0)
+    || document.hidden || !document.hasFocus() || !$('#settings-modal').hidden || !$('#contacts-modal').hidden || $('#media-viewer').open
+    || box.scrollHeight - box.scrollTop - box.clientHeight > 4) return;
+  const targets = readTargets(chat), key = JSON.stringify(targets), snapshot = unreadSnapshot(chat);
+  if (!targets.length || (chat.readConfirmedKey === key && !chat.unread && !chat.markedUnread)) return;
+  chat.readPending = true;
+  try {
+    // Merged conversations use each source's own message ID, never an ID from another network.
+    const results = await Promise.allSettled(targets.map(([id, messageID]) => beeper(`/chats/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({ messageID }) })));
+    const failed = results.find(result => result.status === 'rejected'); if (failed) throw failed.reason;
+    if (!connected || !chats.includes(chat)) return;
+    chat.readConfirmedKey = key; chat.readRetryAt = 0; chat.readError = false;
+    // An arrival during the request must retain its unread indicator until it too is displayed.
+    if (JSON.stringify(readTargets(chat)) === key && unreadSnapshot(chat) === snapshot) {
+      chat.unread = results.reduce((count, result) => count + (result.value.unreadCount || 0), 0);
+      chat.markedUnread = results.some(result => result.value.isMarkedUnread);
+      renderContacts();
+    }
+  } catch (error) {
+    chat.readRetryAt = Date.now() + 10_000;
+    if (!chat.readError) toast('Lecture non synchronisée avec Beeper : ' + error.message);
+    chat.readError = true;
+  } finally { chat.readPending = false; }
 }
 function selectChat(id) {
   if (recording) cancelRecording();
@@ -543,9 +580,12 @@ $('#messages').addEventListener('error', event => {
   const frame = event.target.closest?.('.attachment'); if (frame) frame.querySelector('.media-error').hidden = false;
   else if (event.target.closest?.('.link-preview')) event.target.hidden = true;
 }, true);
-function mediaLoaded() { const box = $('#messages'); if (box.dataset.follow === 'true') box.scrollTop = box.scrollHeight; }
+function mediaLoaded() { const box = $('#messages'); if (box.dataset.follow === 'true') box.scrollTop = box.scrollHeight; scheduleRead(); }
 $('#messages').addEventListener('load', mediaLoaded, true); $('#messages').addEventListener('loadedmetadata', mediaLoaded, true);
-$('#messages').addEventListener('scroll', () => { const box = $('#messages'); box.dataset.follow = String(box.scrollHeight - box.scrollTop - box.clientHeight < 80); });
+$('#messages').addEventListener('scroll', () => { const box = $('#messages'); box.dataset.follow = String(box.scrollHeight - box.scrollTop - box.clientHeight < 80); scheduleRead(); });
+window.addEventListener('focus', scheduleRead);
+document.addEventListener('visibilitychange', scheduleRead);
+$('#media-viewer').addEventListener('close', scheduleRead);
 $('#viewer-close').addEventListener('click', () => $('#media-viewer').close());
 $('#viewer-prev').addEventListener('click', () => showPhoto(galleryIndex - 1)); $('#viewer-next').addEventListener('click', () => showPhoto(galleryIndex + 1));
 $('#viewer-zoom').addEventListener('click', () => { const zoom = $('#viewer-stage').classList.toggle('zoomed'); $('#viewer-zoom').textContent = zoom ? 'Adapter' : 'Zoom'; });
