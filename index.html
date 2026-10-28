@@ -38,6 +38,7 @@
           <div class="messages" id="messages"></div>
         </div>
         <div class="composer">
+          <div id="reply-draft" class="reply-draft" hidden><span><strong>Réponse à <span id="reply-draft-name"></span></strong><span id="reply-draft-text"></span></span><button id="cancel-reply" aria-label="Annuler la réponse">×</button></div>
           <div id="attachment-draft" class="attachment-draft" hidden><img id="draft-image" alt="Aperçu de l’image à envoyer" hidden /><span id="attachment-name"></span><audio id="draft-audio" controls preload="metadata" hidden></audio><button id="remove-attachment" aria-label="Retirer la pièce jointe">×</button></div><input id="file-input" type="file" hidden />
           <div class="compose-tools"><button id="voice-clip-btn" title="Enregistrer un vocal" aria-label="Enregistrer un vocal" aria-pressed="false"><svg aria-hidden="true"><use href="assets/legacy-icons.svg#voice" /></svg></button><button id="emoji-btn" title="Emojis" aria-label="Choisir un emoji" aria-expanded="false" aria-controls="emoji-picker">☺</button><div id="emoji-picker" class="emoji-picker" aria-label="Emojis" hidden></div></div>
           <div id="recording-status" class="recording-status" role="status" hidden><span class="record-dot"></span><span id="recording-time">Enregistrement…</span><button id="cancel-recording">Annuler</button></div>

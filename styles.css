@@ -263,3 +263,18 @@ body { padding: 18px; background: radial-gradient(ellipse at 50% 0%, #b7d6f5, tr
 .history-message-state small { display: block; color: #8a9ead; font-size: 10px; }
 .history-message-state button { margin-top: 12px; padding: 6px 12px; border: 1px solid #aac3d7; border-radius: 3px; color: #457a9e; background: linear-gradient(#fff, #e6f1fa); font: 11px Tahoma; cursor: pointer; }
 .history-message-state.warning { margin: 12px auto; color: #ab743c; }
+.message-social { margin: 5px 0 2px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.message-reactions { display: flex; flex-wrap: wrap; gap: 4px; }
+.message-actions { display: flex; gap: 4px; opacity: .72; }
+.message-row:hover .message-actions, .message-row:focus-within .message-actions { opacity: 1; }
+.message-actions button, .message-reaction { min-height: 24px; padding: 3px 8px; border: 1px solid #bfd2e3; border-radius: 12px; color: #42617b; background: linear-gradient(#fff, #eaf3fb); font: 10px Tahoma; cursor: pointer; }
+.message-actions button:hover, .message-reaction:hover { border-color: #77a7cf; background: #e4f2ff; }
+.message-reaction { min-width: 34px; color: #4b6278; }.message-reaction span { margin-left: 2px; font-weight: bold; }.message-reaction.mine { border-color: #5796c8; color: #205f90; background: #dcedfb; }
+.message-react-control { position: relative; }
+.message-reaction-picker { position: absolute; z-index: 4; left: 0; bottom: calc(100% + 5px); display: flex; gap: 3px; padding: 5px; border: 1px solid #9cb8cf; border-radius: 5px; background: #fff; box-shadow: 0 3px 12px #24476430; }
+.message-reaction-picker[hidden] { display: none; }.message-reaction-picker button { min-width: 31px; min-height: 31px; padding: 3px; font: 18px Tahoma; }
+.reply-draft { flex: none; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 10px; border-left: 3px solid #3084c4; background: linear-gradient(90deg, #e4f1fb, #f7fbff); font: 10px/1.5 Tahoma; }
+.reply-draft > span { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }.reply-draft strong { color: #2a6590; }.reply-draft #reply-draft-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #697f91; }
+.reply-draft button { flex: none; border: 0; background: none; color: #58748c; font: 18px Tahoma; cursor: pointer; }
+.reply-quote { display: flex; flex-direction: column; gap: 2px; max-width: min(360px, 100%); margin: 5px 0; padding: 4px 8px; border: 0; border-left: 2px solid #74a7cf; background: #edf5fc; text-align: left; cursor: pointer; }
+.reply-quote strong { color: #326d98; font: bold 9px Tahoma; }.reply-quote span { overflow: hidden; color: #647f96; font: 10px Tahoma; white-space: nowrap; text-overflow: ellipsis; }

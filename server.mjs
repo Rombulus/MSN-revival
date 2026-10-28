@@ -125,20 +125,28 @@ const server = http.createServer(async (req, res) => {
       if (!s.value.token) return reply(res, 401, { error: 'Connecte MSN Revival à Beeper.' });
       const path = url.pathname.slice('/api/beeper'.length);
       const messages = /^\/chats\/[^/]+\/messages$/.test(path);
+      const messageReactions = /^\/chats\/[^/]+\/messages\/[^/]+\/reactions(?:\/[^/]+)?$/.test(path);
       const markRead = /^\/chats\/[^/]+\/read$/.test(path);
-      if (!(req.method === 'GET' && (path === '/accounts' || path === '/chats' || messages)) && !(req.method === 'POST' && (messages || markRead))) return reply(res, 404, { error: 'Opération indisponible.' });
+      if (!(req.method === 'GET' && (path === '/accounts' || path === '/chats' || messages)) && !(req.method === 'POST' && (messages || markRead || messageReactions)) && !(req.method === 'DELETE' && messageReactions)) return reply(res, 404, { error: 'Opération indisponible.' });
       const options = { headers: { Authorization: `Bearer ${s.value.token}` } };
       if (req.method === 'POST' && markRead) {
         const input = await body(req);
         if (input.messageID !== undefined && (typeof input.messageID !== 'string' || !input.messageID.trim())) throw new Error('Identifiant de message invalide.');
         options.method = 'POST'; options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(input.messageID === undefined ? {} : { messageID: input.messageID });
-      } else if (req.method === 'POST') {
+      } else if (req.method === 'POST' && messages) {
         const input = await body(req); const text = typeof input.text === 'string' ? input.text : '';
         const attachment = input.attachment;
         if (attachment && !s.value.uploads?.has(attachment.uploadID)) throw new Error('Ce fichier doit être préparé à nouveau avant son envoi.');
         if (!text.trim() && !attachment) throw new Error('Message vide.');
-        options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ text, ...(attachment ? { attachment: { uploadID: attachment.uploadID } } : {}) });
+        if (input.replyToMessageID !== undefined && (typeof input.replyToMessageID !== 'string' || !input.replyToMessageID.trim())) throw new Error('Identifiant du message auquel répondre invalide.');
+        options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ text, ...(input.replyToMessageID ? { replyToMessageID: input.replyToMessageID } : {}), ...(attachment ? { attachment: { uploadID: attachment.uploadID } } : {}) });
+      } else if (req.method === 'POST' && messageReactions) {
+        const input = await body(req);
+        if (typeof input.reactionKey !== 'string' || !input.reactionKey.trim() || input.reactionKey.length > 128) throw new Error('Réaction invalide.');
+        options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ reactionKey: input.reactionKey });
+      } else if (req.method === 'DELETE' && messageReactions) {
+        options.method = 'DELETE';
       }
       const query = new URLSearchParams(); for (const key of ['cursor', 'direction', 'limit']) if (url.searchParams.has(key)) query.set(key, url.searchParams.get(key));
       const data = await remote(s.base, '/v1' + path + '?' + query, options);

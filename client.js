@@ -12,6 +12,7 @@ let chats = structuredClone(demo), activeId = 'demo', connected = false, sending
 let chatsCursor = null, listBusy = false, syncBusy = false, soundOn = true, audioContext, toastTimer;
 let accounts = [], accountsLoaded = false;
 let recording = null, recordingSequence = 0, draftAudioURL = null, draftImageURL = null;
+const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const collapsedRosterGroups = new Set();
 let historyUnreadOnly = false;
 let readTimer;
@@ -170,6 +171,42 @@ function renderHeader() {
   setPhoto($('#self-photo'), $('.self-fallback'), connected && chat.selfAvatar);
   $('#self-display').textContent = chat.selfName && chat.selfName !== 'Moi' ? `${chat.selfName} (moi)` : 'Moi';
   $('#history-more').hidden = !chat.hasMore || !connected;
+  renderReplyDraft();
+}
+function renderReplyDraft() {
+  const banner = $('#reply-draft'), target = current()?.replyDraft;
+  banner.hidden = !target;
+  if (!target) return;
+  $('#reply-draft-name').textContent = target.name;
+  $('#reply-draft-text').textContent = target.text || 'Pièce jointe';
+}
+function ownReactionIDs(chat) {
+  const user = accounts.find(item => item.accountID === chat.accountID)?.user || {};
+  return new Set([user.userID, user.id, user.matrixUserID, user.userId, user.username].filter(Boolean));
+}
+function messageActions(message, chat) {
+  if (!connected || chat.readOnly || chat.id === 'demo' || message.localPending || !message.id || message.isDeleted) return '';
+  const ownIDs = ownReactionIDs(chat);
+  const grouped = new Map();
+  for (const reaction of message.reactions || []) {
+    const key = reaction.reactionKey; if (typeof key !== 'string' || !key) continue;
+    const group = grouped.get(key) || []; group.push(reaction); grouped.set(key, group);
+  }
+  const reactionButtons = [...grouped].map(([key, group]) => {
+    const label = key === 'heart' ? '❤️' : key === 'like' ? '👍' : key.replace(/^:|:$/g, '');
+    const mine = group.some(reaction => ownIDs.has(reaction.participantID));
+    return `<button class="message-reaction${mine ? ' mine' : ''}" data-message-reaction="${esc(key)}" aria-label="${group.length} réaction${group.length === 1 ? '' : 's'} ${esc(label)}${mine ? ', toi aussi' : ''}" aria-pressed="${mine}">${esc(label)} <span>${group.length}</span></button>`;
+  }).join('');
+  const sourceID = message.chatID || chat.id;
+  const picker = quickReactions.map(emoji => `<button data-message-reaction="${esc(emoji)}" aria-label="Réagir ${esc(emoji)}">${esc(emoji)}</button>`).join('');
+  return `<div class="message-social">${reactionButtons ? `<div class="message-reactions">${reactionButtons}</div>` : ''}<div class="message-actions"><button data-reply-message="${esc(message.id)}" data-reply-chat="${esc(sourceID)}">↩ Répondre</button><div class="message-react-control"><button data-toggle-reactions aria-expanded="false" aria-label="Réagir au message">☺ Réagir</button><div class="message-reaction-picker" hidden>${picker}</div></div></div></div>`;
+}
+function replyQuote(message, chat) {
+  if (!message.linkedMessageID) return '';
+  const target = [...chat.messages, ...chat.pending].find(item => item.id === message.linkedMessageID && (!message.chatID || !item.chatID || item.chatID === message.chatID));
+  const who = target ? (target.isSender ? (chat.selfName || 'Moi') : target.senderName || chat.name) : 'Message précédent';
+  const summary = target ? plain(target.text || target.replyPreview) || (target.attachments?.length ? 'Pièce jointe' : 'Message') : 'Réponse à un message';
+  return `<button class="reply-quote" data-jump-message="${esc(message.linkedMessageID)}" data-reply-chat="${esc(message.chatID || chat.id)}"><strong>${esc(who)}</strong><span>${esc(summary.slice(0, 180))}</span></button>`;
 }
 function setPhoto(image, fallback, source) {
   const next = source || '';
@@ -191,15 +228,18 @@ function renderMessages(forceBottom = false) {
   for (const message of rows) {
     if (message.isHidden) continue;
     const name = message.isSender ? (chat.selfName || 'Moi') : (message.senderName || chat.name);
-    const key = String(message.localId || message.sourceKey || message.id), signature = JSON.stringify([name, message.text, message.attachments, message.links, message.isDeleted, message.failed, message.progress, message.localPending, message.sendStatus?.status, message.sendStatus?.message]);
+    const key = String(message.localId || message.sourceKey || message.id), signature = JSON.stringify([name, message.text, message.attachments, message.links, message.reactions, message.linkedMessageID, message.isDeleted, message.failed, message.progress, message.localPending, message.sendStatus?.status, message.sendStatus?.message, chat.readOnly, connected]);
     let node = old.get(key); old.delete(key);
     if (!node) { node = document.createElement('article'); node.dataset.messageKey = key; }
     const playing = [...node.querySelectorAll('video,audio')].some(player => !player.paused && !player.ended);
     if (node.dataset.signature !== signature && (!playing || message.isDeleted)) {
       node.className = `message-row ${message.isSender ? 'mine' : ''}`; node.dataset.signature = signature;
+      node.dataset.messageId = message.id || '';
+      node.dataset.messageChat = message.chatID || chat.id;
       const text = message.isDeleted ? '(Message supprimé)' : (message.text || (!message.attachments?.length && !message.links?.length ? '(Message sans texte)' : ''));
       const reels = matchInstagramReels(message, plain(message.text));
-      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div><div class="bubble">${richText(text)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : ''}</div>`;
+      const replyTo = message.linkedMessageID ? replyQuote(message, chat) : '';
+      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div>${replyTo}<div class="bubble">${richText(text)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageActions(message, chat)}</div>`;
       if (!message.localPending && message.sendStatus?.status?.startsWith('FAIL')) {
         const status = document.createElement('small'); status.className = 'send-state failed'; status.textContent = message.sendStatus.message || 'Le réseau a signalé un échec de l’envoi.'; node.firstElementChild.append(status);
       }
@@ -342,9 +382,12 @@ async function sendMessage(existing) {
   const text = existing ? existing.text : $('#message-input').value.trim(), file = existing?.file || (!existing && chat.file);
   if (!text && !file && !existing?.uploadID) return;
   sending = true; $('#send-btn').disabled = true;
-  const pending = existing || { localId: crypto.randomUUID(), text, isSender: true, timestamp: new Date().toISOString(), localPending: true, file, ...(file ? { attachments: [{ type: file.type.startsWith('image/') ? 'img' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'unknown', mimeType: file.type, fileName: file.name, fileSize: file.size }] } : {}) };
+  const replyTarget = chat.replyDraft;
+  const pending = existing || { localId: crypto.randomUUID(), text, isSender: true, timestamp: new Date().toISOString(), localPending: true, file,
+    ...(replyTarget ? { id: crypto.randomUUID(), replyToMessageID: replyTarget.messageID, replyChatID: replyTarget.chatID, linkedMessageID: replyTarget.messageID, chatID: replyTarget.chatID, senderName: 'Moi', replyPreview: replyTarget.text } : {}),
+    ...(file ? { attachments: [{ type: file.type.startsWith('image/') ? 'img' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'unknown', mimeType: file.type, fileName: file.name, fileSize: file.size }] } : {}) };
   pending.failed = false;
-  if (!existing) { chat.pending.push(pending); chat.draft = ''; chat.file = null; $('#message-input').value = ''; renderAttachmentDraft(); }
+  if (!existing) { chat.pending.push(pending); chat.draft = ''; chat.file = null; chat.replyDraft = null; $('#message-input').value = ''; renderAttachmentDraft(); renderReplyDraft(); }
   renderMessages(true);
   renderHistory();
   try {
@@ -354,7 +397,7 @@ async function sendMessage(existing) {
         pending.uploadID = upload.uploadID; pending.file = null;
       }
       pending.progress = 'Transmission à Beeper…';
-      const result = await beeper(`/chats/${encodeURIComponent(chat.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, ...(pending.uploadID ? { attachment: { uploadID: pending.uploadID } } : {}) }) });
+      const result = await beeper(`/chats/${encodeURIComponent(pending.replyChatID || chat.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, ...(pending.replyToMessageID ? { replyToMessageID: pending.replyToMessageID } : {}), ...(pending.uploadID ? { attachment: { uploadID: pending.uploadID } } : {}) }) });
       pending.id = result.pendingMessageID;
       pending.sentChatID = result.chatID;
       await syncMessages(chat);
@@ -581,8 +624,44 @@ window.addEventListener('resize', () => { $('#history-backdrop').hidden = $('.le
 setHistoryVisible(!matchMedia('(max-width: 760px)').matches);
 $('#history-more').addEventListener('click', async event => { event.target.disabled = true; await syncMessages(current(), { older: true }); event.target.disabled = false; });
 $('#send-btn').addEventListener('click', () => sendMessage());
+$('#cancel-reply').addEventListener('click', () => { if (current()) current().replyDraft = null; renderReplyDraft(); });
 $('#messages').addEventListener('click', event => { const button = event.target.closest('[data-retry]'); if (button) sendMessage(current().pending.find(item => item.localId === button.dataset.retry)); });
 $('#messages').addEventListener('click', event => { if (event.target.closest('[data-retry-history]')) syncMessages(current(), { forceBottom: true }); });
+$('#messages').addEventListener('click', async event => {
+  const chat = current(); if (!chat) return;
+  const reply = event.target.closest('[data-reply-message]');
+  if (reply && !chat.readOnly) {
+    const message = [...chat.messages, ...chat.pending].find(item => item.id === reply.dataset.replyMessage && (item.chatID || chat.id) === reply.dataset.replyChat);
+    if (message) {
+      chat.replyDraft = { messageID: message.id, chatID: reply.dataset.replyChat, name: message.isSender ? (chat.selfName || 'Moi') : message.senderName || chat.name, text: plain(message.text) || (message.attachments?.length ? 'Pièce jointe' : 'Message') };
+      renderReplyDraft(); $('#message-input').focus();
+    }
+    return;
+  }
+  const jump = event.target.closest('[data-jump-message]');
+  if (jump) {
+    const target = [...$('#messages').querySelectorAll('.message-row')].find(node => node.dataset.messageId === jump.dataset.jumpMessage && node.dataset.messageChat === jump.dataset.replyChat);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' }); else toast('Le message d’origine n’est pas chargé dans cette conversation.');
+    return;
+  }
+  const toggle = event.target.closest('[data-toggle-reactions]');
+  if (toggle) {
+    const picker = toggle.parentElement.querySelector('.message-reaction-picker'); picker.hidden = !picker.hidden;
+    toggle.setAttribute('aria-expanded', String(!picker.hidden)); return;
+  }
+  const react = event.target.closest('[data-message-reaction]');
+  if (!react || !connected || chat.readOnly || chat.id === 'demo') return;
+  const row = react.closest('.message-row'), messageID = row?.dataset.messageId, sourceID = row?.dataset.messageChat, reactionKey = react.dataset.messageReaction;
+  if (!messageID || !sourceID || !reactionKey) return;
+  const remove = react.getAttribute('aria-pressed') === 'true';
+  react.disabled = true;
+  try {
+    const path = `/chats/${encodeURIComponent(sourceID)}/messages/${encodeURIComponent(messageID)}/reactions`;
+    await beeper(remove ? `${path}/${encodeURIComponent(reactionKey)}` : path, remove ? { method: 'DELETE' } : { method: 'POST', body: JSON.stringify({ reactionKey }) });
+    await syncMessages(chat);
+  } catch (error) { toast(error.message); }
+  finally { if (react.isConnected) react.disabled = false; }
+});
 $('#message-input').addEventListener('input', () => { if (current()) current().draft = $('#message-input').value; renderHistory(); });
 $('#message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendMessage(); } });
 $('#settings-bottom').addEventListener('click', openSettings);
