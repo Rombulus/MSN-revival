@@ -1,4 +1,14 @@
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+export function continuesMessageGroup(previous, message) {
+  if (!previous || !!previous.isSender !== !!message.isSender) return false;
+  // A display name alone is not an identity when Beeper supplies participant IDs.
+  if (!message.isSender) {
+    if (previous.senderID || message.senderID) { if (!previous.senderID || previous.senderID !== message.senderID) return false; }
+    else if ((previous.senderName || '') !== (message.senderName || '')) return false;
+  }
+  const before = new Date(previous.timestamp), after = new Date(message.timestamp);
+  return Number.isFinite(+before) && Number.isFinite(+after) && before.toDateString() === after.toDateString();
+}
 export function webURL(value) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; } catch { return null; }
 }

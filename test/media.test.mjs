@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { linkify, webURL, mediaURL, renderAttachments, renderPreviews, rememberMedia, instagramLink } from '../media.mjs';
+import { linkify, webURL, mediaURL, renderAttachments, renderPreviews, rememberMedia, instagramLink, continuesMessageGroup } from '../media.mjs';
+
+test('regroupe seulement les messages consécutifs du même expéditeur dans la même journée', () => {
+  const first = { senderID: 'lea', senderName: 'Léa', timestamp: '2026-10-28T12:00:00Z' };
+  const next = { ...first, timestamp: '2026-10-28T12:01:00Z' };
+  assert.equal(continuesMessageGroup(null, first), false);
+  assert.equal(continuesMessageGroup(first, next), true);
+  assert.equal(continuesMessageGroup(first, { ...next, senderID: 'another-lea' }), false);
+  assert.equal(continuesMessageGroup(first, { ...next, senderID: undefined }), false);
+  assert.equal(continuesMessageGroup(first, { ...next, isSender: true }), false);
+  assert.equal(continuesMessageGroup(first, { ...next, timestamp: '2026-10-29T12:00:00Z' }), false);
+  assert.equal(continuesMessageGroup(first, { ...next, timestamp: 'invalid' }), false);
+  assert.equal(continuesMessageGroup({ ...first, isSender: true }, { ...next, isSender: true, senderID: 'my-other-account' }), true);
+  assert.equal(continuesMessageGroup({ senderName: 'Léa', timestamp: first.timestamp }, { senderName: 'Léa', timestamp: next.timestamp }), true);
+  assert.equal(continuesMessageGroup({ senderName: 'Léa', timestamp: first.timestamp }, { senderName: 'Adam', timestamp: next.timestamp }), false);
+});
 test('rend les liens web cliquables en échappant le contenu du message', () => {
   const html = linkify('<script>bad()</script> Voir https://instagram.com/reel/abc/?x=1&y=2.');
   assert.ok(html.includes('&lt;script&gt;')); assert.ok(html.includes('rel="noopener noreferrer"')); assert.ok(html.includes('x=1&amp;y=2')); assert.ok(!html.includes('<script>')); assert.match(html, /<\/a>\.$/);

@@ -1,5 +1,5 @@
 import { conversationProfiles, networkIdentity, rosterGroups, historyEntries } from './profiles.mjs';
-import { linkify, webURL, renderAttachments, renderPreviews } from './media.mjs';
+import { linkify, webURL, renderAttachments, renderPreviews, continuesMessageGroup } from './media.mjs';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const clock = value => value ? new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -11,7 +11,7 @@ const demo = [{ id: 'demo', name: 'Quentin', network: 'Démonstration', messages
 let chats = structuredClone(demo), activeId = 'demo', connected = false, sending = false;
 let chatsCursor = null, listBusy = false, syncBusy = false, soundOn = true, audioContext, toastTimer;
 let accounts = [], accountsLoaded = false;
-let recording = null, recordingSequence = 0, draftAudioURL = null;
+let recording = null, recordingSequence = 0, draftAudioURL = null, draftImageURL = null;
 const collapsedRosterGroups = new Set();
 let historyUnreadOnly = false;
 const seen = new Map();
@@ -92,16 +92,51 @@ function historySummary(chat) {
 }
 function renderHistory() {
   const list = $('#conversation-list'), scrollTop = list.scrollTop;
-  const focusedId = list.contains(document.activeElement) ? document.activeElement.closest('[data-history-id]')?.dataset.historyId : null;
   const entries = historyEntries(chats.map(historySummary), { query: $('#history-search').value, unreadOnly: historyUnreadOnly });
-  let group = '';
-  list.innerHTML = entries.map(chat => {
+  // Keep rows (and their SVGs) alive while typing or polling. Only move them when order changes.
+  const old = new Map([...list.children].map(node => [node.dataset.historyKey, node]));
+  let group = '', position = list.firstElementChild;
+  const text = (node, value) => { if (node.textContent !== value) node.textContent = value; };
+  const attribute = (node, name, value) => { if (node.getAttribute(name) !== value) { if (value === null) node.removeAttribute(name); else node.setAttribute(name, value); } };
+  function place(key, create) {
+    const node = old.get(key) || create(); old.delete(key); node.dataset.historyKey = key;
+    if (node !== position) list.insertBefore(node, position);
+    position = node.nextElementSibling;
+    return node;
+  }
+  for (const chat of entries) {
     const network = networkIdentity(chat), unread = chat.unread > 0 || chat.markedUnread;
-    const heading = group !== chat.historyGroup ? `<div class="history-day">${esc(chat.historyGroup)}</div>` : ''; group = chat.historyGroup;
-    return `${heading}<button class="history-chat${chat.id === activeId ? ' selected' : ''}${unread ? ' unread' : ''}" data-history-id="${esc(chat.id)}"${chat.id === activeId ? ' aria-current="true"' : ''} title="${esc(chat.name)} — ${esc(network.name)}"><svg class="network-logo network-${network.icon}" role="img" aria-label="${esc(network.name)}"><use href="assets/legacy-icons.svg#app-${network.icon}" /></svg><span class="history-chat-copy"><span class="history-chat-top"><strong>${esc(chat.name)}</strong><time title="${esc(chat.activityAt || '')}">${esc(chat.historyTime)}</time></span><span class="history-chat-bottom"><span class="history-snippet${chat.hasDraft ? ' is-draft' : ''}">${esc(chat.previewText)}</span>${unread ? `<span class="history-badge" aria-label="${chat.unread || 1} conversation ou messages non lus">${chat.unread || '●'}</span>` : ''}</span></span></button>`;
-  }).join('') || `<p class="history-empty">${$('#history-search').value.trim() ? 'Aucun résultat dans les conversations chargées.' : historyUnreadOnly ? 'Aucune conversation non lue.' : 'Aucune conversation récente.'}</p>`;
+    if (group !== chat.historyGroup) {
+      group = chat.historyGroup;
+      const heading = place('group:' + group, () => { const node = document.createElement('div'); node.className = 'history-day'; return node; });
+      text(heading, group);
+    }
+    const row = place('chat:' + chat.id, () => {
+      const node = document.createElement('button'); node.type = 'button'; node.dataset.historyId = chat.id;
+      node.innerHTML = '<svg role="img"><use /></svg><span class="history-chat-copy"><span class="history-chat-top"><strong></strong><time></time></span><span class="history-chat-bottom"><span class="history-snippet"></span><span class="history-badge"></span></span></span>';
+      return node;
+    });
+    attribute(row, 'class', `history-chat${chat.id === activeId ? ' selected' : ''}${unread ? ' unread' : ''}`);
+    attribute(row, 'aria-current', chat.id === activeId ? 'true' : null);
+    attribute(row, 'title', `${chat.name} — ${network.name}`);
+    attribute(row.querySelector('svg'), 'class', `network-logo network-${network.icon}`);
+    attribute(row.querySelector('svg'), 'aria-label', network.name);
+    attribute(row.querySelector('use'), 'href', `assets/legacy-icons.svg#app-${network.icon}`);
+    text(row.querySelector('strong'), chat.name);
+    text(row.querySelector('time'), chat.historyTime);
+    attribute(row.querySelector('time'), 'title', chat.activityAt || '');
+    const snippet = row.querySelector('.history-snippet'), badge = row.querySelector('.history-badge');
+    text(snippet, chat.previewText);
+    attribute(snippet, 'class', `history-snippet${chat.hasDraft ? ' is-draft' : ''}`);
+    badge.hidden = !unread;
+    if (unread) { text(badge, String(chat.unread || '●')); attribute(badge, 'aria-label', `${chat.unread || 1} conversation ou messages non lus`); }
+  }
+  if (!entries.length) {
+    const empty = place('empty', () => { const node = document.createElement('p'); node.className = 'history-empty'; return node; });
+    text(empty, $('#history-search').value.trim() ? 'Aucun résultat dans les conversations chargées.' : historyUnreadOnly ? 'Aucune conversation non lue.' : 'Aucune conversation récente.');
+  }
+  for (const node of old.values()) node.remove();
   list.scrollTop = scrollTop;
-  if (focusedId) [...list.querySelectorAll('[data-history-id]')].find(button => button.dataset.historyId === focusedId)?.focus({ preventScroll: true });
   $('#history-count').textContent = `${entries.length} affichée${entries.length > 1 ? 's' : ''} · ${chats.length} chargée${chats.length > 1 ? 's' : ''}`;
   const unreadCount = chats.filter(chat => chat.unread > 0 || chat.markedUnread).length;
   $('#history-unread-count').textContent = unreadCount ? `(${unreadCount})` : '';
@@ -150,7 +185,7 @@ function renderMessages(forceBottom = false) {
   const rows = [...chat.messages, ...chat.pending];
   const old = new Map();
   for (const node of [...box.children]) { if (node.dataset.messageKey) old.set(node.dataset.messageKey, node); else node.remove(); }
-  let position = box.firstElementChild, count = 0;
+  let position = box.firstElementChild, count = 0, previous = null;
   for (const message of rows) {
     if (message.isHidden) continue;
     const name = message.isSender ? (chat.selfName || 'Moi') : (message.senderName || chat.name);
@@ -166,6 +201,11 @@ function renderMessages(forceBottom = false) {
         const status = document.createElement('small'); status.className = 'send-state failed'; status.textContent = message.sendStatus.message || 'Le réseau a signalé un échec de l’envoi.'; node.firstElementChild.append(status);
       }
     }
+    const continuation = continuesMessageGroup(previous, message);
+    node.classList.toggle('message-continuation', continuation);
+    const meta = node.querySelector('.message-meta'); if (meta) meta.hidden = continuation;
+    node.setAttribute('aria-label', `${name}, ${clock(message.timestamp)}`);
+    previous = message;
     if (node !== position) box.insertBefore(node, position);
     position = node.nextElementSibling; count++;
   }
@@ -300,6 +340,9 @@ function renderAttachmentDraft() {
   const audio = $('#draft-audio'); audio.pause(); audio.removeAttribute('src'); audio.hidden = true;
   if (draftAudioURL) { URL.revokeObjectURL(draftAudioURL); draftAudioURL = null; }
   if (file?.voiceNote) { draftAudioURL = URL.createObjectURL(file); audio.src = draftAudioURL; audio.hidden = false; }
+  const image = $('#draft-image'); image.hidden = true; image.removeAttribute('src');
+  if (draftImageURL) { URL.revokeObjectURL(draftImageURL); draftImageURL = null; }
+  if (file?.type.startsWith('image/')) { draftImageURL = URL.createObjectURL(file); image.src = draftImageURL; image.hidden = false; }
   renderHistory();
 }
 function closeEmojis() { $('#emoji-picker').hidden = true; $('#emoji-btn').setAttribute('aria-expanded', 'false'); }
@@ -372,9 +415,26 @@ $('#voice-clip-btn').addEventListener('click', () => { if (!recording) startReco
 $('#cancel-recording').addEventListener('click', cancelRecording);
 window.addEventListener('pagehide', cancelRecording);
 $('#file-input').addEventListener('change', event => {
-  const file = event.target.files[0]; event.target.value = ''; if (!file || !current()) return;
+  const file = event.target.files[0]; event.target.value = ''; attachDraft(file);
+});
+function attachDraft(file) {
+  const chat = current(); if (!file || !chat || chat.readOnly || sending || recording) return;
+  if (!connected) { toast('Connecte Beeper pour joindre une image ou un fichier.'); return; }
   if (file.size > 100 * 1024 * 1024) { toast('Choisis un fichier de 100 Mo maximum.'); return; }
-  current().file = file; renderAttachmentDraft();
+  chat.file = file; renderAttachmentDraft();
+}
+$('#message-input').addEventListener('paste', event => {
+  const input = event.currentTarget, clipboard = event.clipboardData;
+  if (!clipboard || input.disabled || !current()) return;
+  const image = [...clipboard.items].find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile()
+    || [...clipboard.files].find(file => file.type.startsWith('image/'));
+  if (image) {
+    event.preventDefault();
+    const extension = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }[image.type] || 'img';
+    attachDraft(image.name ? image : new File([image], `Image-${Date.now()}.${extension}`, { type: image.type }));
+    return;
+  }
+  // Text and links use the textarea's native paste: selection, newlines and undo stay intact.
 });
 $('#remove-attachment').addEventListener('click', () => { if (current()) current().file = null; renderAttachmentDraft(); });
 $('#attach-btn').addEventListener('click', () => { $('#file-input').accept = ''; $('#file-input').click(); });

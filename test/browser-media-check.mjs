@@ -19,21 +19,30 @@ function wave() {
   bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(8000, 24); bytes.writeUInt32LE(16000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(samples * 2, 40);
   return bytes;
 }
-test('photos, liens, pièces jointes et lecture continue dans un navigateur isolé', { skip: !existsSync(edge), timeout: 40_000 }, async () => {
+test('sidebar stable, collage, messages groupés et médias dans un navigateur isolé', { skip: !existsSync(edge), timeout: 40_000 }, async () => {
   let proxy, browser, socket, messages = 0, sends = 0, videoBytes = Buffer.alloc(0), matrixError = true, failSourceB = true;
   const olderSources = [];
+  const sentBodies = [], uploads = [];
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6V00AAAAASUVORK5CYII=', 'base64'), wav = wave();
   const fixtures = [
     { id: 'photo', text: 'Une photo reçue', attachments: [{ id: 'mxc://photo', type: 'img', mimeType: 'image/png', fileName: 'photo.png' }] },
     { id: 'audio', attachments: [{ id: 'mxc://sound', type: 'audio', mimeType: 'audio/wav', fileName: 'message.wav', duration: 15 }] },
     { id: 'video', attachments: [{ id: 'mxc://video', type: 'video', mimeType: 'video/webm', fileName: 'clip.webm' }] },
     { id: 'link', text: '<p>Regarde <a href="https://www.instagram.com/reel/fixture/">ce Reel</a></p>', links: [{ url: 'https://www.instagram.com/reel/fixture/', title: 'Un Reel de démonstration', img: 'mxc://photo', summary: 'Aperçu fourni par le serveur simulé.' }] },
-  ].map((message, index) => ({ ...message, timestamp: new Date(1_700_000_000_000 + index * 1000).toISOString(), senderName: 'Contact de démonstration' }));
+    { id: 'another-sender', text: 'Un homonyme dans le groupe', senderID: 'another-contact' },
+    { id: 'my-message', text: 'Ma première réponse', isSender: true },
+    { id: 'my-next-message', text: 'Ma deuxième réponse', isSender: true },
+    { id: 'next-day', text: 'Le lendemain', timestamp: new Date(1_700_086_400_000).toISOString() },
+  ].map((message, index) => ({ senderID: 'contact', ...message, timestamp: message.timestamp || new Date(1_700_000_000_000 + index * 1000).toISOString(), senderName: 'Contact de démonstration' }));
   const mock = http.createServer(async (req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
     res.setHeader('Content-Type', 'application/json');
     if (path === '/v1/info') return res.end(JSON.stringify({ app: { version: 'fixture' } }));
     if (req.headers.authorization !== 'Bearer browser-fixture') { res.statusCode = 401; return res.end('{}'); }
+    if (path === '/v1/assets/upload') {
+      const chunks = []; for await (const chunk of req) chunks.push(chunk);
+      uploads.push(Buffer.concat(chunks)); return res.end(JSON.stringify({ uploadID: 'pasted-image' }));
+    }
     if (path === '/v1/accounts') return res.end(JSON.stringify([{ accountID: 'fixture', user: { fullName: 'Moi', imgURL: 'mxc://photo' } }]));
     if (path === '/v1/chats') return res.end(JSON.stringify({ items: [
       { id: 'fixture-chat', accountID: 'fixture', type: 'single', title: 'Contact de démonstration', network: 'WhatsApp', imgURL: 'mxc://photo', labels: [{ id: 'friends', name: 'Amis' }], participants: { items: [] }, lastActivity: new Date(Date.now() - 300_000).toISOString(), preview: { text: 'À tout à l’heure !', isSender: true, timestamp: new Date(Date.now() - 300_000).toISOString() } },
@@ -60,7 +69,13 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
         const older = query.has('cursor');
         return res.end(JSON.stringify({ items: [{ id: older ? 'old' : 'shared-id', chatID: id, text: older ? 'Ancien message A' : id === 'member-a' ? 'Message source A' : 'Message source B', timestamp: new Date(1_700_000_000_000 + (older ? -1000 : id === 'member-a' ? 0 : 1000)).toISOString() }], hasMore: id === 'member-a' && !older, oldestCursor: id === 'member-a' && !older ? 'older-a' : undefined }));
       }
-      if (req.method === 'POST') sends++; else messages++; return res.end(JSON.stringify({ items: fixtures, hasMore: false }));
+      if (req.method === 'POST') {
+        sends++; const chunks = []; for await (const chunk of req) chunks.push(chunk);
+        const input = JSON.parse(Buffer.concat(chunks).toString()); sentBodies.push(input);
+        fixtures.push({ id: 'sent-' + sends, text: input.text, isSender: true, timestamp: new Date().toISOString(), ...(input.attachment ? { attachments: [{ type: 'img', id: 'mxc://photo', mimeType: 'image/png', fileName: 'clipboard.png' }] } : {}) });
+        return res.end(JSON.stringify({ pendingMessageID: 'sent-' + sends, chatID: id }));
+      }
+      messages++; return res.end(JSON.stringify({ items: fixtures, hasMore: false }));
     }
     res.writeHead(404); res.end('{}');
   });
@@ -87,6 +102,8 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     await eventually(() => evaluate('document.querySelectorAll(".message-photo").length===1 && document.querySelector(".message-photo").naturalWidth>0'));
     assert.equal(await evaluate('document.querySelectorAll(".link-preview").length'), 1);
     assert.equal(await evaluate('document.querySelector(".bubble a").href'), 'https://www.instagram.com/reel/fixture/');
+    assert.equal(await evaluate('document.querySelectorAll(".message-meta:not([hidden])").length'), 4, 'un en-tête par série, expéditeur et journée');
+    assert.deepEqual(await evaluate('[...document.querySelectorAll(".message-row")].map(row=>row.classList.contains("message-continuation"))'), [false, true, true, true, false, false, true, false]);
     assert.equal(await evaluate('[...document.querySelectorAll(".legacy-right .classic-frame")].every(node=>{const r=node.getBoundingClientRect();return Math.abs(r.width-r.height)<1})'), true);
     assert.equal(await evaluate('document.querySelector(".legacy-menu")'), null);
     assert.equal(await evaluate('document.querySelectorAll(".compose-tools > button").length'), 2);
@@ -104,6 +121,10 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     assert.equal(await evaluate(`document.querySelector('[data-history-id="fixture-chat"] .history-snippet').textContent`), 'Brouillon : Brouillon conservé');
     await evaluate(`document.querySelector('[data-history-id="fixture-chat"]').click()`);
     assert.equal(await evaluate('document.querySelector("#message-input").value'), 'Brouillon conservé');
+    await evaluate(`window.historyNodes=[...document.querySelector('#conversation-list').children];window.historyIcons=[...document.querySelectorAll('.history-chat use')];document.querySelector('#message-input').focus()`);
+    await command('Input.insertText', { text: ' avec des caractères' });
+    assert.equal(await evaluate(`window.historyNodes.every((node,index)=>node===document.querySelector('#conversation-list').children[index]) && window.historyIcons.every((node,index)=>node===document.querySelectorAll('.history-chat use')[index])`), true, 'la frappe conserve les lignes et les logos de la sidebar');
+    assert.equal(await evaluate('document.activeElement.id'), 'message-input');
     await evaluate('document.querySelector("#message-input").value="";document.querySelector("#message-input").dispatchEvent(new Event("input"));document.querySelector("#history-collapse").click()');
     assert.equal(await evaluate('getComputedStyle(document.querySelector("#conversation-sidebar")).display'), 'none');
     await evaluate('document.querySelector("#history-toggle").click()');
@@ -149,6 +170,23 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     await evaluate(`{const transfer=new DataTransfer();transfer.items.add(new File(['fixture'],'test.png',{type:'image/png'}));const input=document.querySelector('#file-input');input.files=transfer.files;input.dispatchEvent(new Event('change'));}`);
     assert.equal(await evaluate('!document.querySelector("#attachment-draft").hidden'), true); assert.equal(sends, 0);
     await evaluate('document.querySelector("#remove-attachment").click()');
+    const pasteImage = `{const data=new DataTransfer();const bytes=Uint8Array.from(atob('${png.toString('base64')}'),c=>c.charCodeAt(0));data.items.add(new File([bytes],'clipboard.png',{type:'image/png'}));const input=document.querySelector('#message-input');input.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));}`;
+    await evaluate(pasteImage);
+    await eventually(() => evaluate('!document.querySelector("#draft-image").hidden && document.querySelector("#draft-image").naturalWidth>0'));
+    assert.ok(await evaluate('document.querySelector("#attachment-name").textContent.startsWith("clipboard.png")'));
+    assert.equal(sends, 0, 'coller une image ne doit pas envoyer de message');
+    await evaluate(`window.pastedImageURL=document.querySelector('#draft-image').src;document.querySelector('#remove-attachment').click()`);
+    assert.equal(await evaluate('document.querySelector("#attachment-draft").hidden && !document.querySelector("#draft-image").hasAttribute("src")'), true);
+    assert.equal(await evaluate('fetch(window.pastedImageURL).then(()=>false,()=>true)'), true, 'le blob de l’aperçu retiré est libéré');
+    const link = 'https://www.instagram.com/reel/pasted/?a=1&b=2';
+    const prepareLinkPaste = `(()=>{const input=document.querySelector('#message-input');input.value='Regarde ici\\nÀ bientôt';input.focus();input.setSelectionRange(8,11);const data=new DataTransfer();data.setData('text/plain',${JSON.stringify(link)});const event=new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true});input.dispatchEvent(event);return event.defaultPrevented})()`;
+    assert.equal(await evaluate(prepareLinkPaste), false, 'les liens gardent le collage natif du navigateur');
+    // Synthetic clipboard events cannot perform the browser default insertion; use its text input path.
+    await command('Input.insertText', { text: link });
+    assert.equal(await evaluate('document.querySelector("#message-input").value'), `Regarde ${link}\nÀ bientôt`);
+    assert.ok(await evaluate(`document.querySelector('[data-history-id="fixture-chat"] .history-snippet').textContent.includes(${JSON.stringify(link)})`));
+    assert.equal(sends, 0);
+    await evaluate('document.querySelector("#message-input").value="";document.querySelector("#message-input").dispatchEvent(new Event("input"))');
     await evaluate('document.querySelector("#voice-clip-btn").click()');
     await eventually(() => evaluate('!document.querySelector("#recording-status").hidden && document.querySelector("#recording-time").textContent.includes("0:")'));
     assert.equal(await evaluate('document.querySelector("#send-btn").disabled'), true);
@@ -172,6 +210,14 @@ test('photos, liens, pièces jointes et lecture continue dans un navigateur isol
     assert.equal(await evaluate('window.playerReference===document.querySelector("audio")'), true, 'le lecteur doit garder son identité DOM');
     assert.ok(await evaluate('window.playerReference.currentTime') > initialTime + 2, 'le son continue pendant la synchronisation');
     assert.equal(await evaluate('window.videoReference===document.querySelector("video") && !window.videoReference.paused && window.videoReference.played.length>0'), true, 'la vidéo est lisible et continue pendant la synchronisation');
+    await evaluate(prepareLinkPaste); await command('Input.insertText', { text: link });
+    await evaluate(pasteImage);
+    await evaluate('document.querySelector("#send-btn").click()');
+    await eventually(() => sends === 1 && evaluate('!document.querySelector("#send-btn").disabled && !document.querySelector(".send-state")'));
+    assert.deepEqual(sentBodies, [{ text: `Regarde ${link}\nÀ bientôt`, attachment: { uploadID: 'pasted-image' } }]);
+    assert.equal(uploads.length, 1);
+    assert.ok(uploads[0].includes(png), 'les octets de l’image collée arrivent au serveur simulé');
+    assert.equal(await evaluate('document.querySelector("#attachment-draft").hidden && document.querySelector("#message-input").value===""'), true);
     assert.deepEqual(exceptions, []);
     const screenshot = await command('Page.captureScreenshot', { format: 'png' }); await writeFile(join(artifacts, 'media-check.png'), Buffer.from(screenshot.data, 'base64'));
     await command('Emulation.setDeviceMetricsOverride', { width: 650, height: 900, deviceScaleFactor: 1, mobile: false });
