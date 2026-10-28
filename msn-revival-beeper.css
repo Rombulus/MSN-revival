@@ -1,0 +1,195 @@
+/* MSN Revival — theme for Beeper Desktop's official Custom CSS hook.
+   Personal theme; built from current-v4 Beeper theme variables/selectors. */
+:root {
+  --font-family: Tahoma, "Segoe UI", sans-serif;
+  --header-height: 46px;
+  --min-sidebar-width: 255px;
+  --threads-list-item-height: 56px;
+  --color-primary: #0874d1;
+  --color-primary-rgb: 8, 116, 209;
+  --color-background-app: #edf5fc;
+  --color-background-app-weak: #e5f0fa;
+  --color-background-elevated: #fff;
+  --color-background-elevated-hover: #eaf5ff;
+  --color-background-grouped: #f8fbfe;
+  --color-background-grouped-weak: #e7f1fa;
+  --color-background-object: #e2edf7;
+  --color-background-sidebar: #e6f1fa;
+  --color-background-sidebar-opaque: #e6f1fa;
+  --color-background-sidebar-thread-focus: #d6eafd;
+  --color-background-sidebar-thread-selected: #cbe3fa;
+  --color-background-sidebar-thread-selected-unfocused: #dcebf8;
+  --color-background-message-active: #e8f4fe;
+  --color-background-message-bubble-received: #fff;
+  --color-background-message-bubble-sent: #e3f2ff;
+  --color-background-input: #fff;
+  --color-background-header-right: #e9f4fd;
+  --color-background-header-right-opaque: #dcecff;
+  --color-border-neutrals: #b7cadd;
+  --color-border-neutrals-strong: #91abc2;
+  --color-border-neutrals-weak: #d2e0ec;
+  --color-border-input: #a9bfd2;
+  --color-border-input-active: #5e9bd0;
+  --color-text-neutrals: #24384b;
+  --color-text-neutrals-subtle: #60768b;
+  --color-text-neutrals-weak: #7890a4;
+  --color-background-button-primary: #1687d2;
+  --color-background-button-primary-active: #086bb8;
+  --color-background-button-secondary: #f8fbfe;
+  --color-background-button-secondary-active: #e1effb;
+  --color-background-selected-primary: #1687d2;
+  --color-background-scrollbar: #8daec8;
+  --color-background-scrollbar-hover: #6389a8;
+  --border-radius-25: 3px;
+  --border-radius-6: 5px;
+  --border-radius-50: 6px;
+  --border-radius-75: 7px;
+  --border-radius-100: 8px;
+  --border-radius-200: 10px;
+  --border-radius-conversation-bubble: 5px;
+  --inbox-avatar-size: 32px;
+  --cv-avatar-size: 28px;
+}
+
+body {
+  font-family: Tahoma, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: auto;
+  --left-pane-bg: linear-gradient(180deg, #f1f8fe, #dceafa);
+  --right-pane-bg: #f8fbfe;
+}
+
+.left,
+.account-switcher,
+.filters-pane-list,
+.threads-list-container {
+  background: linear-gradient(180deg, #f3f9ff, #e2effb);
+}
+
+.left-pane-header,
+.right-pane-header,
+.right-pane-header.right-pane-header-thread,
+.subheader-content {
+  background: linear-gradient(180deg, #fbfdff 0%, #edf6fe 50%, #dcecff 100%);
+  border-color: #a8c1d8 !important;
+  box-shadow: inset 0 1px #fff;
+}
+
+.threads-list-container {
+  border-top: 1px solid #a9bfd2;
+}
+
+.ThreadListItem-module__wrapper {
+  border-radius: 5px !important;
+}
+
+.ThreadListItem-module__wrapper.ThreadListItem-module__isSelected::before {
+  border: 1px solid #428bca;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #69b1ef, #2580d0);
+  box-shadow: inset 0 1px #ffffff80;
+}
+
+body:not(.window-unfocused)
+  .ThreadListItem-module__wrapper.ThreadListItem-module__isSelected
+  .ThreadListItem-module__internal,
+body:not(.window-unfocused)
+  .ThreadListItem-module__wrapper.ThreadListItem-module__isSelected
+  .ThreadListItem-module__body,
+body:not(.window-unfocused)
+  .ThreadListItem-module__wrapper.ThreadListItem-module__isSelected
+  .ThreadListItem-module__timestamp {
+  color: #fff;
+}
+
+.right-wrapper .right.right-thread,
+.right-wrapper .right.right-prefs,
+.conversation {
+  background: linear-gradient(135deg, #f7fbff, #e8f3fc);
+}
+
+.right-wrapper .right.right-thread .right-pane-header,
+.right-wrapper .right.right-prefs .right-pane-header {
+  border-bottom: 1px solid #a8bfd4;
+}
+
+.thread-header {
+  border-bottom: 1px solid #abc3d9;
+}
+
+.messages-list-scrolling-container {
+  padding-right: 12px;
+  padding-left: 12px;
+  background: linear-gradient(180deg, #fff, #fafdff);
+}
+
+.bubble-mode .message-contents {
+  border: 1px solid #c1d4e4;
+  border-radius: 5px 9px 9px 5px;
+  background: linear-gradient(180deg, #fff, #f1f7fc);
+  box-shadow: inset 0 1px #fff, 0 1px 1px #496a8712;
+}
+
+.bubble-mode .is-sender .message-contents {
+  border-color: #9bbbd7;
+  border-radius: 9px 5px 5px 9px;
+  background: linear-gradient(180deg, #eef8ff, #dceeff);
+}
+
+.bubble-mode .is-sender:not(.type-action):not(.is-deleted) .message-text-container {
+  color: #24384b;
+}
+
+.ComposeMessage-module__input {
+  border: 2px solid #9db6cc;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff, #fbfdff);
+  box-shadow: inset 0 1px 3px #56748c20, 0 1px #fff;
+}
+
+.ComposeMessage-module__input:has(.ProseMirror-focused) {
+  border-color: #5f9bcc;
+  box-shadow: inset 0 1px 3px #56748c20, 0 0 0 2px #72b5e52a;
+}
+
+.BrandSendButton-module__container,
+.BrandHiddenControls-module__toggle,
+.styled-inputs button {
+  border: 1px solid #9fb7cc;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #fff, #dceafa);
+  box-shadow: inset 0 1px #fff;
+}
+
+.BrandSendButton-module__container:not(:disabled),
+.styled-inputs button.primary {
+  border-color: #2478ba;
+  color: #fff;
+  background: linear-gradient(180deg, #42a1e3, #1473bf);
+}
+
+.BrandSendButton-module__container:not(:disabled):hover,
+.styled-inputs button.primary:hover {
+  background: linear-gradient(180deg, #58b0ed, #1d81cf);
+}
+
+.ComposeMessage-module__textAreaButtons .btn-icon:hover,
+.tab-bar-btn button:hover {
+  border-radius: 4px;
+  background: #d8eafb;
+}
+
+.date div {
+  border: 1px solid #bdcfe0;
+  border-radius: 4px;
+  background: linear-gradient(#fff, #eaf3fb);
+  color: #5d7489;
+}
+
+.custom-scrollbars ::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background-color: #9bb6cf;
+}
+
+.custom-scrollbars ::-webkit-scrollbar-thumb:hover {
+  background-color: #7599b8;
+}

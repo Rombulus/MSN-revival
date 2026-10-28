@@ -1,0 +1,8 @@
+{
+  "name": "msn-revival",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "check": "node --check server.mjs && node --check client.js && node --check media.mjs && node --check media-server.mjs", "test": "node --test test/*.test.mjs", "test:browser": "node --test test/browser-media-check.mjs" },
+  "engines": { "node": ">=22" }
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1687cf" />
+  <title>MSN Revival — Messenger, comme avant</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="window" id="window">
+    <header class="titlebar">
+      <div class="brand"><span class="butterfly">✿</span><span id="window-title">MSN Messenger</span></div>
+      <div class="window-controls"><button aria-label="Réduire">−</button><button aria-label="Agrandir">□</button><button class="close" aria-label="Fermer">×</button></div>
+    </header>
+    <div class="legacy-toolbar">
+      <button id="invite-btn"><svg class="tool-icon" aria-hidden="true"><use href="assets/legacy-icons.svg#contacts" /></svg><span>Contacts</span></button>
+      <button id="attach-btn"><svg class="tool-icon" aria-hidden="true"><use href="assets/legacy-icons.svg#files" /></svg><span>Envoyer fichiers</span></button>
+      <span class="toolbar-gap"></span><span class="legacy-msn-logo">msn<span>✿</span></span>
+      <button class="tiny-tool" id="wizz-btn" title="Envoyer un Wizz">✣</button>
+    </div>
+
+    <div class="legacy-layout">
+      <section class="legacy-left">
+        <div class="transcript-panel">
+          <div class="recipient-row"><label for="contact-picker">À :</label><select id="contact-picker" aria-label="Choisir une conversation"></select><span class="recipient-status"><i class="presence-dot"></i><span id="chat-status">En ligne</span></span><button id="settings-bottom" title="Connecter Beeper">⚙</button></div>
+          <button id="history-more" class="history-more" hidden>Afficher les messages précédents</button>
+          <div class="messages" id="messages"></div>
+        </div>
+        <div class="composer">
+          <div id="attachment-draft" class="attachment-draft" hidden><span id="attachment-name"></span><audio id="draft-audio" controls preload="metadata" hidden></audio><button id="remove-attachment" aria-label="Retirer la pièce jointe">×</button></div><input id="file-input" type="file" hidden />
+          <div class="compose-tools"><button id="voice-clip-btn" title="Enregistrer un vocal" aria-label="Enregistrer un vocal" aria-pressed="false"><svg aria-hidden="true"><use href="assets/legacy-icons.svg#voice" /></svg></button><button id="emoji-btn" title="Emojis" aria-label="Choisir un emoji" aria-expanded="false" aria-controls="emoji-picker">☺</button><div id="emoji-picker" class="emoji-picker" aria-label="Emojis" hidden></div></div>
+          <div id="recording-status" class="recording-status" role="status" hidden><span class="record-dot"></span><span id="recording-time">Enregistrement…</span><button id="cancel-recording">Annuler</button></div>
+          <div class="compose-box"><textarea id="message-input" rows="2" placeholder="Écris un message..."></textarea><div class="send-rail"><div class="send-stack"><button class="send-button" id="send-btn">Envoyer</button><button class="send-menu" aria-label="Options d’envoi">⌄</button></div><button class="search-send" id="search-send">Rechercher</button></div></div>
+          <div class="compose-footer"><span id="connection-label"><i class="presence-dot"></i> Mode démo · conversation privée</span><button id="sound-label">Sons activés</button><span class="typing-indicator" id="typing">Quentin est en train d’écrire...</span></div>
+        </div>
+      </section>
+      <aside class="legacy-right">
+        <div class="classic-card avatar-card"><div class="classic-frame"><img id="contact-photo" alt="Avatar du contact" hidden /><div class="buddy-art"><span class="buddy-head"></span><span class="buddy-body"></span><span class="buddy-arm"></span><span class="buddy-butterfly"></span></div><button class="avatar-menu" aria-label="Options de l’avatar" disabled>⌄</button></div><div class="side-caption" id="contact-display">Quentin</div></div>
+        <div class="classic-card self-card"><div class="classic-frame"><img id="self-photo" alt="Ta photo de profil" referrerpolicy="no-referrer" hidden /><div class="buddy-art self-fallback" aria-label="Photo personnelle indisponible"></div></div><div class="side-caption" id="self-display">Moi</div></div>
+      </aside>
+    </div>
+    <footer class="promo-bar"><span>✦</span> MSN Revival — Tes conversations d’aujourd’hui, le Messenger d’hier <span class="promo-dots">•••</span></footer>
+  </main>
+
+  <div class="modal-backdrop" id="settings-modal" hidden>
+    <section class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <button class="modal-close" id="settings-close" aria-label="Fermer">×</button>
+      <div class="modal-kicker">UN PETIT VOYAGE DANS LE TEMPS</div>
+      <h2 id="settings-title">Connexion à Beeper</h2>
+      <p>Retrouve tes vraies conversations dans ta fenêtre MSN. Autorise MSN Revival sur la page locale de Beeper.</p>
+      <label for="api-url">Adresse de l’API locale</label><input id="api-url" value="http://localhost:23373" />
+      <button class="primary-button authorize-button" id="authorize-button">Autoriser dans Beeper →</button>
+      <details class="manual-connection"><summary>Connexion manuelle avec une clé</summary><label for="api-token">Clé d’accès Beeper</label><input id="api-token" type="password" placeholder="Clé créée dans Beeper → Intégrations" autocomplete="off" /><button class="text-button" id="connect-button">Utiliser cette clé</button></details>
+      <div class="settings-help">Beeper doit rester ouvert avec l’API locale activée dans <b>Paramètres → Intégrations</b>.</div>
+      <div class="modal-error" id="settings-error" hidden></div>
+      <div class="modal-actions"><button class="text-button" id="demo-button">Fermer</button><button class="text-button" id="disconnect-button" hidden>Déconnecter</button></div>
+      <div class="privacy-note"><span>⌂</span> Accès local. Autorisation gardée pour cette session.</div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="contacts-modal" hidden><section class="settings-card roster-card" role="dialog" aria-modal="true" aria-labelledby="roster-title"><div class="roster-titlebar"><h2 id="roster-title">Contacts — MSN Revival</h2><button class="modal-close" id="contacts-close" aria-label="Fermer">×</button></div><div class="roster-search"><input id="contact-search" type="search" placeholder="Rechercher un contact…" aria-label="Rechercher une conversation" /></div><div id="roster-list"></div><button id="roster-more" class="text-button" hidden>Charger les conversations suivantes</button><footer class="roster-footer" id="roster-count"></footer></section></div>
+  <dialog id="media-viewer" class="media-viewer"><div class="viewer-toolbar"><button id="viewer-prev" aria-label="Photo précédente">◀</button><span id="viewer-caption"></span><button id="viewer-next" aria-label="Photo suivante">▶</button><button id="viewer-zoom">Zoom</button><a id="viewer-download" target="_blank" rel="noopener noreferrer" download>Télécharger</a><button id="viewer-close" aria-label="Fermer la photo">×</button></div><div id="viewer-stage" class="viewer-stage"><img id="viewer-image" alt="" referrerpolicy="no-referrer" /></div><p id="viewer-error" hidden>La photo ne peut pas être chargée. Réessaie ou télécharge le fichier.</p></dialog>
+  <div class="toast" id="toast" aria-live="polite"></div>
+  <script type="module" src="client.js"></script>
+</body>
+</html>

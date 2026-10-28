@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.beeper-preview.png
+.local/
+beeper-custom-css-default-backup.css
+.env
+.env.local
+.env.*.local
