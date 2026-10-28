@@ -78,10 +78,10 @@ export function formatSize(bytes) {
 export function renderAttachments(message) {
   return (message.attachments || []).map(file => {
     const source = attachmentSource(file), src = mediaURL(source), download = mediaURL(source, true), kind = attachmentKind(file);
-    const title = file.fileName || ({ image: 'Photo', video: 'Vidéo', audio: file.isVoiceNote ? 'Message vocal' : 'Audio', file: 'Pièce jointe' }[kind]);
+    const title = file.isSticker ? 'Autocollant' : file.isGif ? 'GIF animé' : file.fileName || ({ image: 'Photo', video: 'Vidéo', audio: file.isVoiceNote ? 'Message vocal' : 'Audio', file: 'Pièce jointe' }[kind]);
     const details = [formatSize(file.fileSize), Number.isFinite(file.duration) ? `${Math.floor(file.duration / 60)}:${String(Math.floor(file.duration % 60)).padStart(2, '0')}` : ''].filter(Boolean).join(' · ');
     let content = '';
-    if (src && kind === 'image') content = `<button class="photo-open" data-photo="${escapeHTML(src)}" data-name="${escapeHTML(title)}" data-download="${escapeHTML(download)}" aria-label="Agrandir ${escapeHTML(title)}"><img class="message-photo" src="${escapeHTML(src)}" alt="${escapeHTML(title)}" loading="lazy" referrerpolicy="no-referrer" /></button>`;
+    if (src && kind === 'image') content = `<button class="photo-open" data-photo="${escapeHTML(src)}" data-name="${escapeHTML(title)}" data-download="${escapeHTML(download)}" aria-label="Agrandir ${escapeHTML(title)}"><img class="message-photo"${file.isGif ? ' data-gif="true"' : ''} src="${escapeHTML(src)}" alt="${escapeHTML(title)}" loading="lazy" referrerpolicy="no-referrer" /></button>`;
     else if (src && kind === 'video') content = `<video class="message-video" controls playsinline preload="metadata" src="${escapeHTML(src)}"${mediaURL(file.posterImg) ? ` poster="${escapeHTML(mediaURL(file.posterImg))}"` : ''}></video>`;
     else if (src && kind === 'audio') content = `<audio class="message-audio" controls preload="metadata" src="${escapeHTML(src)}"></audio>`;
     else content = `<span class="file-icon-small" aria-hidden="true">📎</span>`;
@@ -91,6 +91,8 @@ export function renderAttachments(message) {
 export function renderPreviews(message, plainText) {
   return linkPreviews(message, plainText).map(link => {
     const image = mediaURL(link.img), insta = instagramLink(link.url);
-    return `<a class="link-preview" href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer">${image ? `<img src="${escapeHTML(image)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ''}<span class="link-preview-copy"><small>${insta ? 'Instagram' : escapeHTML(new URL(link.url).hostname)}</small><strong>${escapeHTML(link.title || link.url)}</strong>${link.summary ? `<span>${escapeHTML(link.summary)}</span>` : ''}<em>Ouvrir ↗</em></span></a>`;
+    const host = new URL(link.url).hostname.replace(/^www\./, ''), platform = insta ? 'Instagram' : host;
+    const title = link.title && link.title !== link.url ? link.title : insta?.title || host;
+    return `<a class="link-preview${insta ? ' is-instagram' : ''}${image ? ' has-image' : ''}" href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer">${image ? `<span class="link-preview-media"><img src="${escapeHTML(image)}" alt="Aperçu de ${escapeHTML(platform)}" loading="lazy" referrerpolicy="no-referrer" /><span class="link-preview-badge">${escapeHTML(platform)}</span></span>` : ''}<span class="link-preview-copy"><small>${escapeHTML(platform)}</small><strong>${escapeHTML(title)}</strong>${link.summary && link.summary !== title ? `<span>${escapeHTML(link.summary)}</span>` : ''}<em>Ouvrir le lien ↗</em></span></a>`;
   }).join('');
 }
