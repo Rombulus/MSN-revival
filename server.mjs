@@ -8,9 +8,11 @@ import { rememberMedia } from './media.mjs';
 import { serveMedia } from './media-server.mjs';
 import { createAuthStore } from './auth-store.mjs';
 
+const root = fileURLToPath(new URL('.', import.meta.url));
+try { process.loadEnvFile(join(root, '.env')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
 const port = Number(process.env.PORT || 4173);
 const origin = `http://127.0.0.1:${port}`;
-const root = fileURLToPath(new URL('.', import.meta.url));
+const giphyApiKey = process.env.GIPHY_API_KEY?.trim() || '';
 const sessions = new Map();
 const flows = new Map();
 const authStore = createAuthStore();
@@ -27,6 +29,7 @@ const staticFiles = new Map([
   ['/assets/msn-messenger-contacts.ico', ['assets/msn-messenger-contacts.ico', 'image/vnd.microsoft.icon']],
   ['/assets/msn-messenger-contacts.png', ['assets/msn-messenger-contacts.png', 'image/png']],
   ['/assets/legacy-icons.svg', ['assets/legacy-icons.svg', 'image/svg+xml']],
+  ['/assets/msn-buddy-exact.png', ['assets/msn-buddy-exact.png', 'image/png']],
   ['/assets/buddy.svg', ['assets/buddy.svg', 'image/svg+xml']], ['/assets/duck.svg', ['assets/duck.svg', 'image/svg+xml']],
 ]);
 const random = () => randomBytes(32).toString('base64url');
@@ -73,7 +76,7 @@ async function remote(base, path, options = {}) {
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https://api.giphy.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   try {
     if (req.headers.host !== `127.0.0.1:${port}`) return reply(res, 403, { error: 'Hôte local non autorisé.' });
     if (req.headers.origin && req.headers.origin !== origin) return reply(res, 403, { error: 'Origine non autorisée.' });
@@ -82,6 +85,10 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/status' && req.method === 'GET') {
       let info; try { info = await remote(s.base, '/v1/info'); } catch {}
       return reply(res, 200, { connected: !!s.value.token, available: !!info, version: info?.app?.version, base: s.base, authorizationID: savedAuth?.authorizationID, authError });
+    }
+    if (url.pathname === '/api/giphy-key' && req.method === 'GET') {
+      if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return reply(res, 403, { error: 'Origine non autorisée.' });
+      return reply(res, 200, { enabled: !!giphyApiKey, apiKey: giphyApiKey || undefined });
     }
     if (url.pathname === '/api/auth/start' && req.method === 'POST') {
       const input = await body(req); const base = localBase(input.base);
@@ -112,6 +119,18 @@ const server = http.createServer(async (req, res) => {
       await body(req); await authStore.clear(); savedAuth = null; authError = null;
       for (const session of sessions.values()) { delete session.token; session.assets.clear(); session.media?.clear(); session.uploads?.clear(); }
       flows.clear(); return reply(res, 200, { connected: false });
+    }
+    if (url.pathname === '/api/giphy-media' && req.method === 'GET') {
+      let mediaURL;
+      try { mediaURL = new URL(url.searchParams.get('url') || ''); } catch { return reply(res, 400, { error: 'Adresse GIF invalide.' }); }
+      if (mediaURL.protocol !== 'https:' || !/^(?:media\d*|i)\.giphy\.com$/i.test(mediaURL.hostname) || !mediaURL.pathname.toLowerCase().endsWith('.gif')) return reply(res, 400, { error: 'Cette adresse ne pointe pas vers un GIF GIPHY autorisé.' });
+      const remoteGif = await fetch(mediaURL, { headers: { Accept: 'image/gif' }, signal: AbortSignal.timeout(30_000), redirect: 'error' });
+      if (!remoteGif.ok || !/^image\/gif(?:;|$)/i.test(remoteGif.headers.get('content-type') || '')) return reply(res, 502, { error: 'GIPHY n’a pas fourni le fichier GIF.' });
+      if (Number(remoteGif.headers.get('content-length')) > 30 * 1024 * 1024) return reply(res, 413, { error: 'Ce GIF dépasse la limite de 30 Mo.' });
+      const chunks = []; let length = 0;
+      for await (const chunk of remoteGif.body) { length += chunk.length; if (length > 30 * 1024 * 1024) return reply(res, 413, { error: 'Ce GIF dépasse la limite de 30 Mo.' }); chunks.push(chunk); }
+      res.writeHead(200, { 'Content-Type': 'image/gif', 'Content-Length': length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(Buffer.concat(chunks)); return;
     }
     if (url.pathname === '/api/upload' && req.method === 'POST') {
       if (!s.value.token) return reply(res, 401, { error: 'Connecte Beeper avant de joindre un fichier.' });

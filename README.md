@@ -48,6 +48,16 @@ L’autorisation est conservée après fermeture de MSN Revival, redémarrage du
 
 Le serveur n’utilise que les modules intégrés à Node.js ; aucune dépendance npm tierce n’est requise.
 
+### Recherche de GIFs GIPHY
+
+Pour activer la recherche et les tendances GIF intégrées, copie `.env.example` vers `.env` et renseigne ta clé :
+
+```env
+GIPHY_API_KEY=ta_cle_api_giphy
+```
+
+Redémarre ensuite MSN Revival. Le fichier `.env` est ignoré par Git : ne partage pas ta clé et ne la copie pas dans le code source.
+
 ```sh
 npm run check       # Vérifier la syntaxe JavaScript
 npm test            # Tests du serveur et des fonctions média

@@ -28,14 +28,40 @@ let authorization = null, connectionBusy = false;
 const seen = new Map();
 const current = () => chats.find(chat => chat.id === activeId);
 const plain = text => /<\/?[a-z][^>]*>/i.test(text || '') ? new DOMParser().parseFromString(text, 'text/html').body.textContent : (text || '');
+// Twemoji v17.0.3 artwork (CC BY 4.0): https://github.com/jdecked/twemoji
+const emojiCodepoint = value => {
+  const points = [...value].map(char => char.codePointAt(0).toString(16));
+  return points.filter(point => point !== 'fe0f' || points.includes('200d')).join('-');
+};
+const emojiImageURL = value => `https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/${emojiCodepoint(value)}.svg`;
+function fallbackEmojiImage(event) {
+  const image = event.target;
+  if (image instanceof HTMLImageElement && image.matches('.inline-emoji, .emoji-art')) image.replaceWith(document.createTextNode(image.alt));
+}
+let emojiMatcher;
+try { emojiMatcher = new RegExp('[\\p{Extended_Pictographic}\\p{Regional_Indicator}]', 'u'); }
+catch { emojiMatcher = /[\u{1F000}-\u{1FAFF}\u2600-\u27BF]/u; }
+const isEmojiSegment = value => emojiMatcher.test(value) || value.includes('\u20e3');
+const emojiSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('fr', { granularity: 'grapheme' }) : null;
+function renderEmojiText(value, shouldLinkify = true) {
+  const segments = emojiSegmenter ? [...emojiSegmenter.segment(String(value))].map(item => item.segment) : Array.from(String(value));
+  const output = []; let textRun = '';
+  for (const segment of segments) {
+    if (!isEmojiSegment(segment)) { textRun += segment; continue; }
+    if (textRun) { output.push(shouldLinkify ? linkify(textRun) : esc(textRun)); textRun = ''; }
+    output.push(`<img class="inline-emoji" src="${emojiImageURL(segment)}" alt="${esc(segment)}" title="${esc(segment)}" referrerpolicy="no-referrer" draggable="false">`);
+  }
+  if (textRun) output.push(shouldLinkify ? linkify(textRun) : esc(textRun));
+  return output.join('');
+}
 function richText(text) {
-  if (!/<\/?[a-z][^>]*>/i.test(text || '')) return linkify(text || '');
+  if (!/<\/?[a-z][^>]*>/i.test(text || '')) return renderEmojiText(text || '');
   const doc = new DOMParser().parseFromString(text, 'text/html');
   function walk(node) {
-    if (node.nodeType === Node.TEXT_NODE) return linkify(node.textContent);
+    if (node.nodeType === Node.TEXT_NODE) return renderEmojiText(node.textContent);
     if (node.nodeType !== Node.ELEMENT_NODE || ['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'SVG'].includes(node.tagName)) return '';
     if (node.tagName === 'BR') return '<br>';
-    if (node.tagName === 'A') { const href = webURL(node.getAttribute('href')); return href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(node.textContent)}</a>` : esc(node.textContent); }
+    if (node.tagName === 'A') { const href = webURL(node.getAttribute('href')); return href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${renderEmojiText(node.textContent, false)}</a>` : renderEmojiText(node.textContent); }
     const children = [...node.childNodes].map(walk).join('');
     const tag = { B: 'strong', STRONG: 'strong', I: 'em', EM: 'em', CODE: 'code', BLOCKQUOTE: 'blockquote' }[node.tagName];
     return tag ? `<${tag}>${children}</${tag}>` : children + (['P', 'DIV', 'LI'].includes(node.tagName) ? '<br>' : '');
@@ -47,13 +73,34 @@ function chime(wizz = false) {
   if (!soundOn || recording) return;
   try {
     audioContext ||= new AudioContext(); audioContext.resume(); const now = audioContext.currentTime;
-    (wizz ? [440, 590, 440, 740] : [660, 790, 990]).forEach((frequency, i) => {
-      const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
+    if (wizz) {
+      const oscillator = audioContext.createOscillator(), filter = audioContext.createBiquadFilter(), gain = audioContext.createGain();
+      oscillator.type = 'sawtooth'; filter.type = 'lowpass'; filter.frequency.value = 1450; filter.Q.value = 1.1;
+      const steps = [330, 690, 285, 760, 310, 650, 250], step = .15;
+      oscillator.frequency.setValueAtTime(steps[0], now);
+      steps.slice(1).forEach((frequency, index) => oscillator.frequency.setValueAtTime(frequency, now + (index + 1) * step));
+      gain.gain.setValueAtTime(.001, now); gain.gain.linearRampToValueAtTime(.105, now + .035);
+      for (let index = 0; index < steps.length; index++) {
+        const start = now + index * step;
+        gain.gain.setValueAtTime(index % 2 ? .055 : .11, start + .04);
+        gain.gain.linearRampToValueAtTime(.018, start + step - .015);
+      }
+      gain.gain.linearRampToValueAtTime(.001, now + steps.length * step);
+      oscillator.connect(filter); filter.connect(gain); gain.connect(audioContext.destination);
+      oscillator.start(now); oscillator.stop(now + steps.length * step + .02);
+    } else [660, 790, 990].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator(), gain = audioContext.createGain(), start = now + index * .1;
       oscillator.type = 'sine'; oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(.001, now + i * .1); gain.gain.exponentialRampToValueAtTime(.1, now + i * .1 + .015); gain.gain.exponentialRampToValueAtTime(.001, now + i * .1 + .22);
-      oscillator.connect(gain); gain.connect(audioContext.destination); oscillator.start(now + i * .1); oscillator.stop(now + i * .1 + .25);
+      gain.gain.setValueAtTime(.001, start); gain.gain.exponentialRampToValueAtTime(.1, start + .015); gain.gain.exponentialRampToValueAtTime(.001, start + .22);
+      oscillator.connect(gain); gain.connect(audioContext.destination); oscillator.start(start); oscillator.stop(start + .25);
     });
   } catch {}
+}
+const WIZZ_MESSAGE = '*vous avez reçu un wizz*';
+const isWizzMessage = message => plain(message?.text).trim().toLocaleLowerCase('fr') === WIZZ_MESSAGE;
+function triggerWizz() {
+  const windowElement = $('#window'); windowElement.classList.remove('shake'); void windowElement.offsetWidth; windowElement.classList.add('shake');
+  chime(true); setTimeout(() => windowElement.classList.remove('shake'), 1500);
 }
 async function request(path, options = {}) {
   const response = await fetch(path, { ...options, cache: 'no-store', headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
@@ -282,7 +329,7 @@ function renderMessages(forceBottom = false) {
       const text = message.isDeleted ? '(Message supprimé)' : (message.text || (!message.attachments?.length && !message.links?.length ? '(Message sans texte)' : ''));
       const reels = matchInstagramReels(message, plain(message.text));
       const replyTo = message.linkedMessageID ? replyQuote(message, chat) : '';
-      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time datetime="${esc(message.timestamp)}" title="${esc(message.timestamp)}">${esc(dateClock(message.timestamp))}</time></div>${replyTo}<div class="message-line"><div class="bubble">${richText(text)}</div>${messageActions(message, chat)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageReactionsMarkup(message, chat)}</div>`;
+      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${renderEmojiText(name, false)} dit :</strong><time datetime="${esc(message.timestamp)}" title="${esc(message.timestamp)}">${esc(dateClock(message.timestamp))}</time></div>${replyTo}<div class="message-line"><div class="bubble">${richText(text)}</div>${messageActions(message, chat)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageReactionsMarkup(message, chat)}</div>`;
       if (!message.localPending && message.sendStatus?.status?.startsWith('FAIL')) {
         const status = document.createElement('small'); status.className = 'send-state failed'; status.textContent = message.sendStatus.message || 'Le réseau a signalé un échec de l’envoi.'; node.firstElementChild.append(status);
       }
@@ -406,7 +453,9 @@ async function syncMessages(chat, { older = false, forceBottom = false } = {}) {
     });
     chat.hasMore = sourceIDs.some(id => chat.sourcePages.get(id)?.hasMore);
     if (!older) {
-      if (before && incoming.some(message => !before.has(message.sourceKey) && !message.isSender && !message.isHidden)) chime();
+      const newIncoming = before ? incoming.filter(message => !before.has(message.sourceKey) && !message.isSender && !message.isHidden) : [];
+      if (newIncoming.some(isWizzMessage)) triggerWizz();
+      else if (newIncoming.length) chime();
       seen.set(chat.id, new Set([...(before || []), ...incoming.map(message => message.sourceKey)]));
     }
     if (activeId === chat.id) {
@@ -419,20 +468,26 @@ async function syncMessages(chat, { older = false, forceBottom = false } = {}) {
   } catch (error) { chat.loadError = error.message; if (activeId === chat.id) connectionLabel(error.message, true); if (error.status === 401) { connected = false; cancelRecording(); renderHeader(); openSettings(); } }
   finally { chat.loading = false; if (activeId === chat.id) renderMessages(forceBottom); }
 }
-async function sendMessage(existing) {
+async function sendMessage(existing, forcedText) {
   const chat = current(); if (!chat || chat.readOnly || sending || recording) return;
-  if (!connected && chat.id !== 'demo') { openSettings(); toast('Reconnecte Beeper pour envoyer ce message.'); return; }
-  const text = existing ? existing.text : $('#message-input').value.trim(), file = existing?.file || (!existing && chat.file);
-  if (!text && !file && !existing?.uploadID) return;
+  if (!connected && chat.id !== 'demo') { openSettings(); toast('Reconnecte Beeper pour envoyer ce message.'); return false; }
+  const text = existing ? existing.text : forcedText ?? $('#message-input').value.trim(), file = existing?.file || (!existing && forcedText === undefined && chat.file);
+  if (!text && !file && !existing?.uploadID) return false;
   sending = true; $('#send-btn').disabled = true;
-  const replyTarget = chat.replyDraft;
+  const replyTarget = forcedText === undefined ? chat.replyDraft : null;
   const pending = existing || { localId: crypto.randomUUID(), text, isSender: true, timestamp: new Date().toISOString(), localPending: true, file,
     ...(replyTarget ? { id: crypto.randomUUID(), replyToMessageID: replyTarget.messageID, replyChatID: replyTarget.chatID, linkedMessageID: replyTarget.messageID, chatID: replyTarget.chatID, senderName: 'Moi', replyPreview: replyTarget.text } : {}),
     ...(file ? { attachments: [{ type: file.type.startsWith('image/') ? 'img' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'unknown', mimeType: file.type, fileName: file.name, fileSize: file.size }] } : {}) };
   pending.failed = false;
-  if (!existing) { chat.pending.push(pending); chat.draft = ''; chat.file = null; chat.replyDraft = null; $('#message-input').value = ''; renderAttachmentDraft(); renderReplyDraft(); }
+  if (!existing) {
+    chat.pending.push(pending); if (forcedText === undefined) chat.replyDraft = null;
+    if (forcedText === undefined) { chat.draft = ''; chat.file = null; $('#message-input').value = ''; renderAttachmentDraft(); }
+    else chat.draft = $('#message-input').value;
+    renderReplyDraft();
+  }
   renderMessages(true);
   renderHistory();
+  let sent = false;
   try {
     if (connected) {
       if (pending.file && !pending.uploadID) {
@@ -443,10 +498,12 @@ async function sendMessage(existing) {
       const result = await beeper(`/chats/${encodeURIComponent(pending.replyChatID || chat.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, ...(pending.replyToMessageID ? { replyToMessageID: pending.replyToMessageID } : {}), ...(pending.uploadID ? { attachment: { uploadID: pending.uploadID } } : {}) }) });
       pending.id = result.pendingMessageID;
       pending.sentChatID = result.chatID;
+      sent = true;
       await syncMessages(chat);
-    } else { chat.messages.push({ ...pending, id: pending.localId, localPending: false }); chat.pending = chat.pending.filter(item => item !== pending); }
+    } else { chat.messages.push({ ...pending, id: pending.localId, localPending: false }); chat.pending = chat.pending.filter(item => item !== pending); sent = true; }
   } catch (error) { pending.failed = true; toast(error.message); }
   finally { sending = false; renderHeader(); renderHistory(); if (activeId === chat.id) renderMessages(true); }
+  return sent;
 }
 function uploadFile(file, progress) {
   return new Promise((resolve, reject) => {
@@ -471,10 +528,30 @@ function renderAttachmentDraft() {
   renderHistory();
 }
 function closeEmojis() { $('#emoji-picker').hidden = true; $('#emoji-btn').setAttribute('aria-expanded', 'false'); }
-const emojis = [['😀','Sourire'],['😄','Grand sourire'],['😂','Rire'],['😊','Content'],['😉','Clin d’œil'],['😍','Amoureux'],['😘','Bisou'],['😎','Cool'],['🤔','Réflexion'],['😅','Gêné'],['🥲','Sourire ému'],['😭','Pleurer'],['😮','Surpris'],['😡','En colère'],['🙃','À l’envers'],['😴','Fatigué'],['❤️','Cœur'],['💔','Cœur brisé'],['👍','Pouce levé'],['👎','Pouce baissé'],['🙏','Merci'],['🔥','Feu'],['🎉','Fête'],['👋','Salut']];
-$('#emoji-picker').innerHTML = emojis.map(([emoji, label]) => `<button type="button" data-emoji="${emoji}" title="${label}" aria-label="${label}">${emoji}</button>`).join('');
+const emojiGroups = [
+  ['Visages', '😀|😃|😄|😁|😆|😅|🤣|😂|🙂|🙃|🫠|😉|😊|😇|🥰|😍|🤩|😘|😗|☺️|😚|😙|🥲|😋|😛|😜|🤪|😝|🤑|🤗|🤭|🫢|🫣|🤫|🤔|🫡|🤐|🤨|😐|😑|😶|🫥|😶‍🌫️|😏|😒|🙄|😬|😮‍💨|🤥|🫨|🙂‍↔️|🙂‍↕️|😌|😔|😪|🤤|😴|😷|🤒|🤕|🤢|🤮|🤧|🥵|🥶|🥴|😵|😵‍💫|🤯|🥳|🥸|😎|🤓|🧐|😕|🫤|😟|🙁|☹️|😮|😯|😲|😳|🥺|🥹|😦|😧|😨|😰|😥|😢|😭|😱|😖|😣|😞|😓|😩|😫|🥱|😤|😡|😠|🤬|😈|👿|💀|☠️|💩|🤡|👻|👽|👾|🤖'],
+  ['Gestes', '👋|🤚|🖐️|✋|🖖|🫱|🫲|🫳|🫴|🫷|🫸|👌|🤌|🤏|✌️|🤞|🫰|🤟|🤘|🤙|👈|👉|👆|👇|☝️|🫵|👍|👎|✊|👊|🤛|🤜|👏|🙌|🫶|👐|🤲|🤝|🙏|✍️|💅|💪|🦾|🦿|🦵|🦶|👂|🦻|👃|🧠|🫀|🫁|🦷|🦴|👀|👁️|👅|👄|💋'],
+  ['Personnes', '👶|🧒|👦|👧|🧑|👨|👩|🧓|👴|👵|🙍|🙎|🙅|🙆|💁|🙋|🧏|🙇|🤦|🤷|🧑‍⚕️|🧑‍🎓|🧑‍🏫|🧑‍⚖️|🧑‍🌾|🧑‍🍳|🧑‍🔧|🧑‍💼|🧑‍🔬|🧑‍🎤|🧑‍🎨|🧑‍🚀|🧑‍🚒|👮|🕵️|💂|🥷|👷|🤴|👸|👳|👲|🧕|🤵|👰|🤰|🫃|🫄|🤱|👼|🎅|🤶|🧑‍🎄|🦸|🦹|🧙|🧚|🧛|🧜|🧝|🧞|🧟|💃|🕺|🕴️|👯|🧖|🧗|🏃|🚶|🧎|🧘|🛀|🛌'],
+  ['Animaux', '🐶|🐱|🐭|🐹|🐰|🦊|🐻|🐼|🐻‍❄️|🐨|🐯|🦁|🐮|🐷|🐸|🐵|🙈|🙉|🙊|🐒|🐔|🐧|🐦|🐤|🐣|🐥|🦆|🦅|🦉|🦇|🐺|🐗|🐴|🦄|🐝|🪱|🐛|🦋|🐌|🐞|🐜|🪰|🪲|🪳|🦟|🦗|🕷️|🦂|🐢|🐍|🦎|🦖|🦕|🐙|🦑|🦐|🦞|🦀|🐡|🐠|🐟|🐬|🐳|🐋|🦈|🦭|🐊|🐅|🐆|🦓|🦍|🦧|🦣|🐘|🦛|🦏|🐪|🐫|🦒|🦘|🦬|🐃|🐂|🐄|🐎|🐖|🐏|🐑|🦙|🐐|🦌|🐕|🐩|🦮|🐈|🐓|🦃|🦤|🦚|🦜|🦢|🪿|🦩|🕊️|🐇|🦝|🦨|🦡|🦫|🦦|🦥|🐁|🐀|🐿️|🦔|🐾'],
+  ['Nature', '🌵|🎄|🌲|🌳|🌴|🪵|🌱|🌿|☘️|🍀|🎍|🪴|🎋|🍃|🍂|🍁|🪺|🪹|🍄|🐚|🪨|🌾|💐|🌷|🪷|🌹|🥀|🌺|🌸|🌼|🌻|🌞|🌝|🌛|🌜|🌚|🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔|🌙|🌎|🌍|🌏|🪐|💫|⭐|🌟|✨|⚡|☄️|💥|🔥|🌪️|🌈|☀️|🌤️|⛅|🌥️|☁️|🌦️|🌧️|⛈️|🌩️|🌨️|❄️|☃️|⛄|🌬️|💨|💧|💦|☔|☂️|🌊'],
+  ['Nourriture', '🍏|🍎|🍐|🍊|🍋|🍌|🍉|🍇|🍓|🫐|🍈|🍒|🍑|🥭|🍍|🥥|🥝|🍅|🍆|🥑|🥦|🥬|🥒|🌶️|🫑|🌽|🥕|🫒|🧄|🧅|🥔|🍠|🫚|🥐|🥯|🍞|🥖|🥨|🧀|🥚|🍳|🧈|🥞|🧇|🥓|🥩|🍗|🍖|🌭|🍔|🍟|🍕|🫓|🥪|🥙|🧆|🌮|🌯|🫔|🥗|🥘|🫕|🥫|🍝|🍜|🍲|🍛|🍣|🍱|🥟|🦪|🍤|🍙|🍚|🍘|🍥|🥠|🥮|🍢|🍡|🍧|🍨|🍦|🥧|🧁|🍰|🎂|🍮|🍭|🍬|🍫|🍿|🍩|🍪|🌰|🥜|🫘|🍯|🥛|🍼|☕|🫖|🍵|🧃|🥤|🧋|🍶|🍺|🍻|🥂|🍷|🥃|🍸|🍹|🧉|🍾'],
+  ['Activités', '⚽|🏀|🏈|⚾|🥎|🎾|🏐|🏉|🥏|🎱|🪀|🏓|🏸|🏒|🏑|🥍|🏏|🪃|🥅|⛳|🪁|🛝|🏹|🎣|🤿|🥊|🥋|🎽|🛹|🛼|🛷|⛸️|🥌|🎿|⛷️|🏂|🪂|🏋️|🤼|🤸|⛹️|🤺|🤾|🏌️|🏇|🧘|🏄|🏊|🤽|🚣|🧗|🚴|🚵|🎪|🎭|🩰|🎨|🎬|🎤|🎧|🎼|🎹|🥁|🪘|🎷|🎺|🪗|🎸|🪕|🎻|🪇|🎮|🕹️|🎲|♟️|🎯|🎳|🎰|🧩'],
+  ['Voyages', '🚗|🚕|🚙|🚌|🚎|🏎️|🚓|🚑|🚒|🚐|🛻|🚚|🚛|🚜|🛵|🏍️|🛺|🚲|🛴|🛹|🛼|🚏|🛣️|🛤️|🛢️|⛽|🛞|🚨|🚥|🚦|🛑|🚧|⚓|🛟|⛵|🛶|🚤|🛳️|⛴️|🛥️|🚢|✈️|🛩️|🛫|🛬|🪂|💺|🚁|🚟|🚠|🚡|🛰️|🚀|🛸|🌍|🗺️|🧭|🏖️|🏝️|🏕️|⛺|🏠|🏡|🏢|🏰|🗼|🗽|⛲|🎡|🎢|🎠|🌃|🌆|🌇|🌉|🌌'],
+  ['Objets', '⌚|📱|📲|💻|⌨️|🖥️|🖨️|🖱️|🖲️|🕹️|💽|💾|💿|📀|📼|📷|📸|📹|🎥|📽️|🎞️|📞|☎️|📟|📠|📺|📻|🎙️|🎚️|🎛️|🧭|⏱️|⏰|⌛|⏳|🔋|🪫|🔌|💡|🔦|🕯️|🪔|🧯|🛢️|💸|💵|💴|💶|💷|🪙|💰|💳|🧾|💎|⚖️|🪜|🧰|🪛|🔧|🔨|⚒️|🛠️|⛏️|🪚|🔩|⚙️|🪤|🧱|⛓️|🧲|🔫|💣|🧨|🪓|🔪|🗡️|🛡️|🚬|⚰️|🪦|⚱️|🏺|🔮|📿|🧿|💈|⚗️|🔭|🔬|🕳️|🩹|🩺|💊|💉|🩸|🧬|🦠|🧫|🧪|🌡️|🧹|🪠|🧺|🧻|🪣|🧼|🫧|🪥|🧽|🧴|🛎️|🔑|🗝️|🚪|🪑|🛋️|🛏️|🛌|🧸|🪆|🖼️|🪞|🪟|🛍️|🛒|🎁|🎈|🎀|🪄|🪅|🎊|🎉|🎎|🏮|🎐|🧧'],
+  ['Symboles', '❤️|🧡|💛|💚|💙|🩵|💜|🖤|🩶|🤍|🤎|💔|❤️‍🔥|❤️‍🩹|❣️|💕|💞|💓|💗|💖|💘|💝|💟|☮️|✝️|☪️|🕉️|☸️|✡️|🔯|🕎|☯️|☦️|🛐|⛎|♈|♉|♊|♋|♌|♍|♎|♏|♐|♑|♒|♓|🆔|⚛️|🉑|☢️|☣️|📴|📳|🈶|🈚|🈸|🈺|🈷️|✴️|🆚|💮|🉐|㊙️|㊗️|🈴|🈵|🈹|🈲|🅰️|🅱️|🆎|🆑|🅾️|🆘|❌|⭕|🛑|⛔|📛|🚫|💯|💢|♨️|🚷|🚯|🚳|🚱|🔞|📵|🚭|❗|❕|❓|❔|‼️|⁉️|🔅|🔆|〽️|⚠️|🚸|🔱|⚜️|🔰|♻️|✅|🈯|💹|❇️|✳️|❎|🌐|💠|Ⓜ️|🌀|💤|🏧|🚾|♿|🅿️|🛗|🈳|🈂️|🛂|🛃|🛄|🛅|🚹|🚺|🚻|🚼|🚰|🚮|🎦|📶|🈁|🔣|ℹ️|🔤|🔡|🔠|🆖|🆗|🆙|🆒|🆕|🆓|🔟|🔢|▶️|⏸️|⏯️|⏹️|⏺️|⏭️|⏮️|⏩|⏪|🔀|🔁|🔂|🔼|🔽|⏫|⏬|➡️|⬅️|⬆️|⬇️|↗️|↘️|↙️|↖️|↕️|↔️|🔄|🔃|🔚|🔙|🔛|🔝|🔜|➕|➖|➗|✖️|♾️|💲|💱|™️|©️|®️|〰️|➰|➿|🔴|🟠|🟡|🟢|🔵|🟣|⚫|⚪|🟤|🔺|🔻|🔸|🔹|🔶|🔷|🔳|🔲|▪️|▫️|◾|◽|◼️|◻️|⬛|⬜|🟥|🟧|🟨|🟩|🟦|🟪|🟫|🔈|🔉|🔊|🔔|🔕|📣|📢|💬|💭|🗯️|♠️|♥️|♦️|♣️|🃏|🀄|🎴'],
+];
+const emojiGrid = () => $('#emoji-picker .emoji-grid');
+function showEmojiGroup(name = 'Tout') {
+  const values = name === 'Tout' ? emojiGroups.flatMap(([, values]) => values.split('|')) : (emojiGroups.find(([group]) => group === name)?.[1] || '').split('|');
+  emojiGrid().innerHTML = values.filter(Boolean).map(emoji => `<button type="button" data-emoji="${esc(emoji)}" title="${esc(emoji)}" aria-label="${esc(emoji)}"><img class="emoji-art" src="${emojiImageURL(emoji)}" alt="${esc(emoji)}" referrerpolicy="no-referrer" loading="lazy" draggable="false" /></button>`).join('');
+}
+$('#emoji-picker').innerHTML = `<div class="emoji-categories"><button type="button" data-emoji-category="Tout" class="active">Tout</button>${emojiGroups.map(([group]) => `<button type="button" data-emoji-category="${esc(group)}" title="${esc(group)}">${esc(group)}</button>`).join('')}</div><div class="emoji-grid"></div>`;
+showEmojiGroup();
+$('#emoji-picker').addEventListener('error', fallbackEmojiImage, true);
 $('#emoji-btn').addEventListener('click', () => { const show = $('#emoji-picker').hidden; $('#emoji-picker').hidden = !show; $('#emoji-btn').setAttribute('aria-expanded', String(show)); if (show) $('#emoji-picker button').focus(); });
 $('#emoji-picker').addEventListener('click', event => {
+  const category = event.target.closest('[data-emoji-category]');
+  if (category) { $('#emoji-picker').querySelectorAll('[data-emoji-category]').forEach(button => button.classList.toggle('active', button === category)); showEmojiGroup(category.dataset.emojiCategory); return; }
   const button = event.target.closest('[data-emoji]'), input = $('#message-input'); if (!button || input.disabled || !current()) return;
   input.setRangeText(button.dataset.emoji, input.selectionStart, input.selectionEnd, 'end'); current().draft = input.value; renderHistory(); closeEmojis(); input.focus();
 });
@@ -563,6 +640,60 @@ $('#message-input').addEventListener('paste', event => {
 });
 $('#remove-attachment').addEventListener('click', () => { if (current()) current().file = null; renderAttachmentDraft(); });
 $('#attach-btn').addEventListener('click', () => { $('#file-input').accept = ''; $('#file-input').click(); });
+let giphyApiKey = null, giphyKeyRequest = null, giphySearchSequence = 0;
+async function loadGiphyKey() {
+  if (giphyApiKey) return giphyApiKey;
+  giphyKeyRequest ||= fetch('/api/giphy-key', { cache: 'no-store' }).then(async response => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Impossible de lire la configuration GIPHY.');
+    if (!data.enabled || !data.apiKey) throw new Error('Ajoute GIPHY_API_KEY dans .env puis redémarre MSN Revival.');
+    giphyApiKey = data.apiKey; return giphyApiKey;
+  }).finally(() => { giphyKeyRequest = null; });
+  return giphyKeyRequest;
+}
+async function loadGiphy(query = '') {
+  const sequence = ++giphySearchSequence, status = $('#giphy-status'), results = $('#giphy-results');
+  status.textContent = query ? 'Recherche GIPHY…' : 'Chargement des tendances GIPHY…'; results.replaceChildren();
+  try {
+    const key = await loadGiphyKey();
+    const endpoint = query ? 'search' : 'trending';
+    const params = new URLSearchParams({ api_key: key, limit: '24', rating: 'g', lang: 'fr', bundle: 'messaging_non_clips' });
+    if (query) params.set('q', query);
+    const response = await fetch(`https://api.giphy.com/v1/gifs/${endpoint}?${params}`);
+    const payload = await response.json();
+    if (!response.ok || payload.meta?.status >= 400) throw new Error(payload.meta?.msg || 'Recherche GIPHY impossible.');
+    if (sequence !== giphySearchSequence) return;
+    const cards = (payload.data || []).map(gif => {
+      const original = gif.images?.original?.url;
+      const preview = gif.images?.fixed_width_small?.url || gif.images?.fixed_width?.url || original;
+      if (!original || !preview) return '';
+      return `<button class="giphy-result" type="button" data-giphy-url="${esc(original)}" data-giphy-id="${esc(gif.id)}" title="${esc(gif.title || 'GIF GIPHY')}"><img src="${esc(preview)}" alt="${esc(gif.title || 'GIF animé')}" referrerpolicy="no-referrer" loading="lazy" /><span>Joindre</span></button>`;
+    }).filter(Boolean);
+    results.innerHTML = cards.join('');
+    status.textContent = cards.length ? '' : 'Aucun GIF trouvé.';
+  } catch (error) {
+    if (sequence === giphySearchSequence) status.textContent = error.message || 'Impossible de contacter GIPHY.';
+  }
+}
+$('#gif-btn').addEventListener('click', () => { $('#giphy-modal').hidden = false; $('#giphy-search-input').focus(); loadGiphy(); });
+$('#giphy-close').addEventListener('click', () => { $('#giphy-modal').hidden = true; });
+$('#giphy-modal').addEventListener('click', event => { if (event.target === $('#giphy-modal')) $('#giphy-modal').hidden = true; });
+$('#giphy-search-form').addEventListener('submit', event => { event.preventDefault(); loadGiphy($('#giphy-search-input').value.trim()); });
+$('#giphy-trending').addEventListener('click', () => { $('#giphy-search-input').value = ''; loadGiphy(); });
+$('#giphy-results').addEventListener('click', async event => {
+  const result = event.target.closest('[data-giphy-url]'), chat = current();
+  if (!result) return;
+  if (!connected || !chat || chat.readOnly || sending) { toast(!connected ? 'Connecte Beeper pour joindre ce GIF.' : 'Cette conversation ne peut pas recevoir de pièce jointe.'); return; }
+  result.disabled = true; $('#giphy-results').inert = true; $('#giphy-status').textContent = 'Préparation du GIF…';
+  try {
+    const response = await fetch('/api/giphy-media?url=' + encodeURIComponent(result.dataset.giphyUrl));
+    if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Téléchargement du GIF impossible.'); }
+    const blob = await response.blob();
+    attachDraft(new File([blob], `GIPHY-${result.dataset.giphyId || Date.now()}.gif`, { type: 'image/gif' }));
+    $('#giphy-modal').hidden = true;
+  } catch (error) { $('#giphy-status').textContent = error.message; result.disabled = false; }
+  finally { $('#giphy-results').inert = false; }
+});
 function openSettings() { $('#settings-error').hidden = true; $('#settings-modal').hidden = false; $('#disconnect-button').hidden = !connected; }
 function settingsError(error) { $('#settings-error').textContent = error.message; $('#settings-error').hidden = false; }
 async function oauth() {
@@ -721,7 +852,7 @@ $('#demo-button').addEventListener('click', () => { $('#settings-modal').hidden 
 for (const id of ['settings-modal', 'contacts-modal']) $('#' + id).addEventListener('click', event => { if (event.target === $('#' + id)) $('#' + id).hidden = true; });
 function openContacts() { $('#contacts-modal').hidden = false; $('#contact-search').focus(); renderRoster(); }
 $('#search-send').addEventListener('click', openContacts); $('#invite-btn').addEventListener('click', openContacts); $('#contacts-close').addEventListener('click', () => { $('#contacts-modal').hidden = true; });
-$('#wizz-btn').addEventListener('click', () => { $('#window').classList.remove('shake'); void $('#window').offsetWidth; $('#window').classList.add('shake'); chime(true); toast('Wizz local ! Les réseaux actuels ne transmettent pas le Wizz MSN.'); });
+$('#wizz-btn').addEventListener('click', async () => { if (sending) return; const sent = await sendMessage(null, WIZZ_MESSAGE); if (sent) triggerWizz(); });
 function toggleSound() { soundOn = !soundOn; $('#sound-label').textContent = soundOn ? 'Sons activés' : 'Sons coupés'; if (soundOn) chime(); }
 $('#sound-label').addEventListener('click', toggleSound);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { $('#settings-modal').hidden = true; $('#contacts-modal').hidden = true; closeEmojis(); } if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openContacts(); } });
@@ -748,6 +879,7 @@ $('#messages').addEventListener('click', event => {
   if (retry) { const frame = retry.closest('.attachment'), media = frame.querySelector('img,video,audio'); frame.querySelector('.media-error').hidden = true; if (media instanceof HTMLMediaElement) media.load(); else if (media) media.src = media.src; }
 });
 $('#messages').addEventListener('error', event => {
+  if (event.target.matches?.('.inline-emoji')) { fallbackEmojiImage(event); return; }
   const frame = event.target.closest?.('.attachment'); if (frame) frame.querySelector('.media-error').hidden = false;
   else if (event.target.closest?.('.link-preview')) event.target.hidden = true;
 }, true);
