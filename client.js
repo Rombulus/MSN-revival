@@ -54,8 +54,41 @@ function renderEmojiText(value, shouldLinkify = true) {
   if (textRun) output.push(shouldLinkify ? linkify(textRun) : esc(textRun));
   return output.join('');
 }
+function markdownInline(value) {
+  const pattern = /\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|\*([^*\n]+)\*|_([^_\n]+)_|`([^`\n]+)`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  let output = '', last = 0, match;
+  while ((match = pattern.exec(value))) {
+    output += renderEmojiText(value.slice(last, match.index));
+    if (match[1] || match[2]) output += `<strong>${renderEmojiText(match[1] || match[2])}</strong>`;
+    else if (match[3]) output += `<del>${renderEmojiText(match[3])}</del>`;
+    else if (match[4] || match[5]) output += `<em>${renderEmojiText(match[4] || match[5])}</em>`;
+    else if (match[6]) output += `<code>${esc(match[6])}</code>`;
+    else { const href = webURL(match[8]); output += href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${renderEmojiText(match[7], false)}</a>` : esc(match[7]); }
+    last = pattern.lastIndex;
+  }
+  return output + renderEmojiText(value.slice(last));
+}
+function markdownText(value) {
+  let inCode = false, codeLines = [], output = [];
+  for (const line of String(value).split(/\r?\n/)) {
+    if (/^\s*```/.test(line)) {
+      if (inCode) { output.push(`<pre><code>${esc(codeLines.join('\n'))}</code></pre>`); codeLines = []; }
+      inCode = !inCode; continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+    const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
+    const quote = line.match(/^\s*>\s?(.+)$/);
+    const list = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (heading) output.push(`<strong class="markdown-heading">${markdownInline(heading[2])}</strong>`);
+    else if (quote) output.push(`<blockquote>${markdownInline(quote[1])}</blockquote>`);
+    else if (list) output.push(`<div class="markdown-list-item">• ${markdownInline(list[1])}</div>`);
+    else output.push(markdownInline(line));
+  }
+  if (inCode) output.push(`<pre><code>${esc(codeLines.join('\n'))}</code></pre>`);
+  return output.join('<br>');
+}
 function richText(text) {
-  if (!/<\/?[a-z][^>]*>/i.test(text || '')) return renderEmojiText(text || '');
+  if (!/<\/?[a-z][^>]*>/i.test(text || '')) return markdownText(text || '');
   const doc = new DOMParser().parseFromString(text, 'text/html');
   function walk(node) {
     if (node.nodeType === Node.TEXT_NODE) return renderEmojiText(node.textContent);
@@ -220,6 +253,7 @@ function renderHeader() {
   $('#message-input').disabled = chat.readOnly;
   $('#message-input').placeholder = chat.readOnly ? 'Cette conversation est en lecture seule.' : `Écris un message à ${chat.name}…`;
   $('#send-btn').disabled = chat.readOnly || sending || !!recording || (!connected && chat.id !== 'demo');
+  $('#wizz-btn').disabled = chat.readOnly || sending || !!recording || (!connected && chat.id !== 'demo');
   $('#attach-btn').disabled = chat.readOnly || !connected || sending || !!recording;
   $('#voice-clip-btn').disabled = chat.readOnly || !connected || sending;
   $('#emoji-btn').disabled = chat.readOnly;
@@ -548,14 +582,37 @@ function showEmojiGroup(name = 'Tout') {
 $('#emoji-picker').innerHTML = `<div class="emoji-categories"><button type="button" data-emoji-category="Tout" class="active">Tout</button>${emojiGroups.map(([group]) => `<button type="button" data-emoji-category="${esc(group)}" title="${esc(group)}">${esc(group)}</button>`).join('')}</div><div class="emoji-grid"></div>`;
 showEmojiGroup();
 $('#emoji-picker').addEventListener('error', fallbackEmojiImage, true);
-$('#emoji-btn').addEventListener('click', () => { const show = $('#emoji-picker').hidden; $('#emoji-picker').hidden = !show; $('#emoji-btn').setAttribute('aria-expanded', String(show)); if (show) $('#emoji-picker button').focus(); });
+function closeFormatting() { $('#format-menu').hidden = true; $('#format-btn').setAttribute('aria-expanded', 'false'); }
+function applyMarkdownFormat(kind) {
+  const input = $('#message-input'); if (input.disabled || !current()) return;
+  const start = input.selectionStart, end = input.selectionEnd, selected = input.value.slice(start, end) || 'texte';
+  let replacement = '', innerStart = 0;
+  if (kind === 'quote') {
+    replacement = selected.split('\n').map(line => `> ${line}`).join('\n'); innerStart = replacement.length;
+  } else {
+    const markers = { bold: '**', italic: '*', strike: '~~', code: '`' }[kind];
+    if (!markers) return;
+    replacement = `${markers}${selected}${markers}`; innerStart = markers.length;
+  }
+  input.setRangeText(replacement, start, end, 'select');
+  input.setSelectionRange(start + innerStart, start + innerStart + (kind === 'quote' ? 0 : selected.length));
+  current().draft = input.value; renderHistory(); closeFormatting(); input.focus();
+}
+$('#format-btn').addEventListener('click', () => {
+  const show = $('#format-menu').hidden; closeEmojis(); $('#format-menu').hidden = !show;
+  $('#format-btn').setAttribute('aria-expanded', String(show)); if (show) $('#format-menu button').focus();
+});
+$('#format-menu').addEventListener('click', event => {
+  const button = event.target.closest('[data-format]'); if (button) applyMarkdownFormat(button.dataset.format);
+});
+$('#emoji-btn').addEventListener('click', () => { const show = $('#emoji-picker').hidden; closeFormatting(); $('#emoji-picker').hidden = !show; $('#emoji-btn').setAttribute('aria-expanded', String(show)); if (show) $('#emoji-picker button').focus(); });
 $('#emoji-picker').addEventListener('click', event => {
   const category = event.target.closest('[data-emoji-category]');
   if (category) { $('#emoji-picker').querySelectorAll('[data-emoji-category]').forEach(button => button.classList.toggle('active', button === category)); showEmojiGroup(category.dataset.emojiCategory); return; }
   const button = event.target.closest('[data-emoji]'), input = $('#message-input'); if (!button || input.disabled || !current()) return;
   input.setRangeText(button.dataset.emoji, input.selectionStart, input.selectionEnd, 'end'); current().draft = input.value; renderHistory(); closeEmojis(); input.focus();
 });
-document.addEventListener('click', event => { if (!event.target.closest('.compose-tools')) closeEmojis(); });
+document.addEventListener('click', event => { if (!event.target.closest('.compose-tools')) { closeEmojis(); closeFormatting(); } });
 
 function renderRecording() {
   const active = !!recording; $('#recording-status').hidden = !active;
@@ -852,10 +909,10 @@ $('#demo-button').addEventListener('click', () => { $('#settings-modal').hidden 
 for (const id of ['settings-modal', 'contacts-modal']) $('#' + id).addEventListener('click', event => { if (event.target === $('#' + id)) $('#' + id).hidden = true; });
 function openContacts() { $('#contacts-modal').hidden = false; $('#contact-search').focus(); renderRoster(); }
 $('#search-send').addEventListener('click', openContacts); $('#invite-btn').addEventListener('click', openContacts); $('#contacts-close').addEventListener('click', () => { $('#contacts-modal').hidden = true; });
-$('#wizz-btn').addEventListener('click', async () => { if (sending) return; const sent = await sendMessage(null, WIZZ_MESSAGE); if (sent) triggerWizz(); });
+$('#wizz-btn').addEventListener('click', async () => { if ($('#wizz-btn').disabled || sending) return; const sent = await sendMessage(null, WIZZ_MESSAGE); if (sent) triggerWizz(); });
 function toggleSound() { soundOn = !soundOn; $('#sound-label').textContent = soundOn ? 'Sons activés' : 'Sons coupés'; if (soundOn) chime(); }
 $('#sound-label').addEventListener('click', toggleSound);
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { $('#settings-modal').hidden = true; $('#contacts-modal').hidden = true; closeEmojis(); } if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openContacts(); } });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { $('#settings-modal').hidden = true; $('#contacts-modal').hidden = true; closeEmojis(); closeFormatting(); } if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openContacts(); } });
 const controls = document.querySelectorAll('.window-controls button');
 controls[0].disabled = true; controls[2].disabled = true;
 controls[1].addEventListener('click', () => $('#window').classList.toggle('maximized'));

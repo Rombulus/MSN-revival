@@ -29,6 +29,12 @@ const staticFiles = new Map([
   ['/assets/msn-messenger-contacts.ico', ['assets/msn-messenger-contacts.ico', 'image/vnd.microsoft.icon']],
   ['/assets/msn-messenger-contacts.png', ['assets/msn-messenger-contacts.png', 'image/png']],
   ['/assets/legacy-icons.svg', ['assets/legacy-icons.svg', 'image/svg+xml']],
+  ['/assets/toolbar-icons/format.png', ['assets/toolbar-icons/format.png', 'image/png']],
+  ['/assets/toolbar-icons/emoji.png', ['assets/toolbar-icons/emoji.png', 'image/png']],
+  ['/assets/toolbar-icons/voice.png', ['assets/toolbar-icons/voice.png', 'image/png']],
+  ['/assets/toolbar-icons/giphy.png', ['assets/toolbar-icons/giphy.png', 'image/png']],
+  ['/assets/toolbar-icons/files.png', ['assets/toolbar-icons/files.png', 'image/png']],
+  ['/assets/toolbar-icons/wizz.png', ['assets/toolbar-icons/wizz.png', 'image/png']],
   ['/assets/msn-buddy-exact.png', ['assets/msn-buddy-exact.png', 'image/png']],
   ['/assets/buddy.svg', ['assets/buddy.svg', 'image/svg+xml']], ['/assets/duck.svg', ['assets/duck.svg', 'image/svg+xml']],
 ]);

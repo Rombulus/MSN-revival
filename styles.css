@@ -174,15 +174,33 @@ body { padding: 18px; background: radial-gradient(ellipse at 50% 0%, #b7d6f5, tr
 #viewer-error { padding: 12px; color: #a34c42; font: 12px Tahoma; }
 @media (max-width: 560px) { .link-preview { width: min(360px, 100%); }.link-preview-media, .link-preview-media img { max-height: 190px; }.viewer-toolbar { flex-wrap: wrap; } }
 
-.compose-tools { position: relative; height: 38px; gap: 8px; padding: 0 10px; }
-.compose-tools > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 3px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
-.compose-tools > button:hover:not(:disabled) { border-color: #a6bed2; background: #f2f8ff; }
+.compose-tools { position: relative; height: 28px; gap: 5px; padding: 0 9px; align-items: center; border-top: 1px solid #c8d7e5; border-bottom: 1px solid #bacbda; background: linear-gradient(#f8fbff, #e4edf7); }
+.compose-tools > button { display: inline-flex; align-items: center; justify-content: center; width: auto; min-width: 22px; height: 24px; padding: 0 2px; border: 1px solid transparent; border-radius: 2px; color: #465d70; background: transparent; box-shadow: none; cursor: pointer; }
+.compose-tools > button:hover:not(:disabled) { border-color: #b1c3d2; background: linear-gradient(#fff, #e3edf6); }
 .compose-tools > button:disabled { opacity: .4; cursor: default; }
-.compose-tools #voice-clip-btn svg { width: 23px; height: 23px; }
-.compose-tools #emoji-btn { color: #d29b13; font: 25px/1 Tahoma; }
+.compose-tools #voice-clip-btn { gap: 3px; }
+.compose-tools #voice-clip-btn .voice-clip-label { color: #566e7f; font: 10px Verdana, Tahoma, sans-serif; white-space: nowrap; }
+.compose-tools #emoji-btn { gap: 0; }
 .compose-tools #voice-clip-btn.is-recording { background: #ffdedb; border-color: #d9847b; }
-.compose-tools { position: relative; }
-.compose-tools #gif-btn { min-width: 30px; padding: 3px 6px; border: 1px solid #a8c3d9; border-radius: 4px; color: #2878a9; background: linear-gradient(#fff, #e6f2fc); font: bold 10px Tahoma; }
+.compose-tools .msn-toolbar-icon { display: block; width: auto; height: 17px; max-width: 31px; object-fit: contain; image-rendering: auto; }
+.compose-tools #format-btn .msn-toolbar-icon { max-width: 23px; }
+.compose-tools #voice-clip-btn .msn-toolbar-icon { max-width: 26px; }
+.compose-tools #gif-btn .msn-toolbar-icon { max-width: 30px; }
+.compose-tools #attach-btn .msn-toolbar-icon { max-width: 31px; }
+.compose-tools #wizz-btn .msn-toolbar-icon { max-width: 30px; }
+.compose-tools .tool-drop { margin-left: 1px; color: #71899a; font: 7px Tahoma; }
+.format-menu { position: absolute; bottom: calc(100% + 5px); left: 7px; z-index: 5; width: 155px; padding: 4px; border: 1px solid #91aec6; border-radius: 4px; background: linear-gradient(#fff, #eaf4fc); box-shadow: 0 4px 14px #284e7133; }
+.format-menu[hidden] { display: none; }
+.format-menu button { width: 100%; min-height: 28px; padding: 4px 7px; display: flex; align-items: center; justify-content: space-between; border: 1px solid transparent; border-radius: 3px; color: #294c69; background: transparent; font: 11px Tahoma; cursor: pointer; }
+.format-menu button:hover, .format-menu button:focus-visible { border-color: #aac8df; background: #dceeff; }
+.format-menu button span:last-child { color: #8298aa; font: 9px Consolas, monospace; }
+.compose-tools #wizz-btn:hover:not(:disabled) { border-color: #c7ad68; background: linear-gradient(#fffbd9, #ffeaa7); }
+.compose-tools #attach-btn:disabled { opacity: .4; cursor: default; }
+.markdown-heading { color: #254f76; font-size: 1.12em; }
+.markdown-list-item { padding-left: 10px; }
+.bubble blockquote { margin: 4px 0; padding-left: 8px; border-left: 2px solid #82acd0; color: #637b8c; }
+.bubble pre { margin: 5px 0; padding: 7px; overflow-x: auto; border: 1px solid #d4e1eb; border-radius: 3px; background: #f3f7fa; }
+.bubble code { padding: 1px 3px; border-radius: 2px; background: #eaf0f5; font: .95em Consolas, monospace; }
 .emoji-picker { position: absolute; bottom: calc(100% + 5px); left: 8px; z-index: 4; width: min(390px, calc(100vw - 40px)); max-height: min(390px, calc(100dvh - 150px)); padding: 8px; display: flex; flex-direction: column; gap: 5px; border: 1px solid #9cb8cf; border-radius: 5px; background: linear-gradient(#fff, #e6f2fc); box-shadow: 0 4px 14px #284e7133; }
 .emoji-categories { flex: none; display: flex; flex-wrap: wrap; gap: 3px; padding-bottom: 4px; border-bottom: 1px solid #ccdeec; }
 .emoji-categories button { padding: 4px 6px; border: 1px solid transparent; border-radius: 3px; color: #486981; background: transparent; font: 10px Tahoma; cursor: pointer; }

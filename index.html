@@ -19,9 +19,7 @@
     <div class="legacy-toolbar">
       <button id="history-toggle" aria-controls="conversation-sidebar" aria-expanded="true"><svg class="tool-icon history-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M8 8h32v31H18L8 45Z" fill="#c6e7ff" stroke="#719ebd"/><path d="M15 17h18M15 23h12" stroke="#6796b7" stroke-width="3"/><circle cx="33" cy="32" r="12" fill="#f6fcff" stroke="#6a99bc" stroke-width="2"/><path d="M33 24v9l6 3" fill="none" stroke="#4885b4" stroke-width="2.5"/></svg><span>Historique</span></button>
       <button id="invite-btn"><svg class="tool-icon" aria-hidden="true"><use href="assets/legacy-icons.svg#contacts" /></svg><span>Contacts</span></button>
-      <button id="attach-btn"><svg class="tool-icon" aria-hidden="true"><use href="assets/legacy-icons.svg#files" /></svg><span>Envoyer fichiers</span></button>
       <span class="toolbar-gap"></span><span class="legacy-msn-logo">msn<span>✿</span></span>
-      <button class="tiny-tool" id="wizz-btn" title="Envoyer un Wizz">✣</button>
     </div>
 
     <div class="legacy-layout">
@@ -43,7 +41,16 @@
         <div class="composer">
           <div id="reply-draft" class="reply-draft" hidden><span><strong>Réponse à <span id="reply-draft-name"></span></strong><span id="reply-draft-text"></span></span><button id="cancel-reply" aria-label="Annuler la réponse">×</button></div>
           <div id="attachment-draft" class="attachment-draft" hidden><img id="draft-image" alt="Aperçu de l’image à envoyer" hidden /><span id="attachment-name"></span><audio id="draft-audio" controls preload="metadata" hidden></audio><button id="remove-attachment" aria-label="Retirer la pièce jointe">×</button></div><input id="file-input" type="file" hidden />
-          <div class="compose-tools"><button id="voice-clip-btn" title="Enregistrer un vocal" aria-label="Enregistrer un vocal" aria-pressed="false"><svg aria-hidden="true"><use href="assets/legacy-icons.svg#voice" /></svg></button><button id="emoji-btn" title="Emojis" aria-label="Choisir un emoji" aria-expanded="false" aria-controls="emoji-picker">☺</button><button id="gif-btn" title="Parcourir les GIFs sur GIPHY" aria-label="Chercher un GIF sur GIPHY">GIF</button><div id="emoji-picker" class="emoji-picker" aria-label="Emojis" hidden></div></div>
+          <div class="compose-tools">
+            <button id="format-btn" title="Mise en forme" aria-label="Mise en forme" aria-expanded="false" aria-controls="format-menu"><img class="msn-toolbar-icon" src="assets/toolbar-icons/format.png" alt="" /></button>
+            <div id="format-menu" class="format-menu" role="menu" aria-label="Mise en forme" hidden><button type="button" role="menuitem" data-format="bold"><b>Gras</b><span>**texte**</span></button><button type="button" role="menuitem" data-format="italic"><i>Italique</i><span>*texte*</span></button><button type="button" role="menuitem" data-format="strike"><s>Barré</s><span>~~texte~~</span></button><button type="button" role="menuitem" data-format="code"><code>Code</code><span>`texte`</span></button><button type="button" role="menuitem" data-format="quote"><span>Citation</span><span>&gt; texte</span></button></div>
+            <button id="emoji-btn" title="Emojis" aria-label="Choisir un emoji" aria-expanded="false" aria-controls="emoji-picker"><img class="msn-toolbar-icon" src="assets/toolbar-icons/emoji.png" alt="" /></button>
+            <button id="voice-clip-btn" title="Enregistrer un vocal" aria-label="Enregistrer un vocal" aria-pressed="false"><img class="msn-toolbar-icon" src="assets/toolbar-icons/voice.png" alt="" /><span class="voice-clip-label">Voice Clip</span></button>
+            <button id="gif-btn" title="Parcourir les GIFs sur GIPHY" aria-label="Chercher un GIF sur GIPHY"><img class="msn-toolbar-icon" src="assets/toolbar-icons/giphy.png" alt="" /></button>
+            <button id="attach-btn" title="Joindre un fichier" aria-label="Joindre un fichier"><img class="msn-toolbar-icon" src="assets/toolbar-icons/files.png" alt="" /></button>
+            <button id="wizz-btn" class="wizz-compose-btn" title="Envoyer un Wizz" aria-label="Envoyer un Wizz"><img class="msn-toolbar-icon" src="assets/toolbar-icons/wizz.png" alt="" /></button>
+            <div id="emoji-picker" class="emoji-picker" aria-label="Emojis" hidden></div>
+          </div>
           <div id="recording-status" class="recording-status" role="status" hidden><span class="record-dot"></span><span id="recording-time">Enregistrement…</span><button id="cancel-recording">Annuler</button></div>
           <div class="compose-box"><textarea id="message-input" rows="2" placeholder="Écris un message..."></textarea><div class="send-rail"><div class="send-stack"><button class="send-button" id="send-btn">Envoyer</button><button class="send-menu" aria-label="Options d’envoi">⌄</button></div><button class="search-send" id="search-send">Rechercher</button></div></div>
           <div class="compose-footer"><span id="connection-label"><i class="presence-dot"></i> Mode démo · conversation privée</span><button id="sound-label">Sons activés</button><span class="typing-indicator" id="typing">Quentin est en train d’écrire...</span></div>
