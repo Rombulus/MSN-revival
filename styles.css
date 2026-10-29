@@ -237,19 +237,21 @@ body { padding: 18px; background: radial-gradient(ellipse at 50% 0%, #b7d6f5, tr
 .history-tabs button[aria-selected="true"] { background: linear-gradient(#fff, #d8ebfb); border-color: #a4c3dc; color: #28648f; box-shadow: inset 0 1px #fff; }
 .conversation-list { flex: 1; min-height: 0; overflow: auto; padding: 2px 5px 9px; outline: none; background: #f9fcff; scrollbar-width: thin; scrollbar-color: #a5bfd5 #eef6fc; }
 .history-day { padding: 12px 7px 5px; color: #8aa0b2; font: bold 9px Tahoma; letter-spacing: .25px; }
-.history-chat { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 58px; padding: 8px 7px; border: 1px solid transparent; border-radius: 4px; background: transparent; text-align: left; cursor: pointer; }
+.history-chat { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 47px; padding: 5px 6px; border: 1px solid transparent; border-radius: 3px; background: transparent; text-align: left; cursor: pointer; }
 .history-chat:hover { background: #eaf5fd; border-color: #d1e4f2; }
 .history-chat.selected { border-color: #95bddb; background: linear-gradient(#d9eeff, #c6e3f8); box-shadow: inset 0 1px #ffffffbd; }
 .history-chat:focus-visible { outline: 1px solid #558cb4; outline-offset: -2px; }
-.history-chat > .network-logo { width: 21px; height: 21px; }
+.history-contact-avatar { position: relative; width: 31px; height: 31px; flex: none; display: grid; place-items: center; }
+.msn-contact-icon { display: block; width: 30px; height: 30px; overflow: visible; filter: drop-shadow(0 1px 1px #47677b55); }
+.history-network-badge { position: absolute; right: -3px; bottom: -2px; width: 14px; height: 14px; padding: 1px; border: 1px solid #fff; border-radius: 3px; background: #fff; box-shadow: 0 0 0 1px #9eb5c6, 0 1px 2px #1e385b45; }
 .history-chat-copy { flex: 1; min-width: 0; }
 .history-chat-top, .history-chat-bottom { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.history-chat-top { margin-bottom: 5px; }
+.history-chat-top { margin-bottom: 2px; }
 .history-chat-top strong { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #36566e; font: 11px Tahoma; }
 .history-chat.unread .history-chat-top strong { font-weight: bold; color: #244b6a; }
 .history-chat-top time { flex: none; color: #97aaba; font: 8px Tahoma; }
-.history-snippet { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #90a3b2; font: 10px Tahoma; }
-.history-chat.unread .history-snippet { color: #67869d; }
+.history-snippet { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #697f90; font: 9px Tahoma; }
+.history-chat.unread .history-snippet { color: #4f7189; }
 .history-snippet.is-draft { color: #b07c3e; }
 .history-badge { flex: none; min-width: 15px; padding: 1px 4px; border-radius: 8px; color: white; background: linear-gradient(#60a7dc, #3b83b9); text-align: center; font: bold 9px Tahoma; }
 .history-count { height: 25px; flex: none; padding: 0 9px; display: flex; align-items: center; border-top: 1px solid #bfd3e4; color: #96aabb; font: 9px Tahoma; }

@@ -124,20 +124,21 @@ function renderHistory() {
     }
     const row = place('chat:' + chat.id, () => {
       const node = document.createElement('button'); node.type = 'button'; node.dataset.historyId = chat.id;
-      node.innerHTML = '<svg role="img"><use /></svg><span class="history-chat-copy"><span class="history-chat-top"><strong></strong><time></time></span><span class="history-chat-bottom"><span class="history-snippet"></span><span class="history-badge"></span></span></span>';
+      node.innerHTML = '<span class="history-contact-avatar" aria-hidden="true"><svg class="msn-contact-icon" viewBox="0 0 48 48"><use href="assets/legacy-icons.svg#msn-contact-person" /></svg><svg role="img"><use /></svg></span><span class="history-chat-copy"><span class="history-chat-top"><strong></strong><time></time></span><span class="history-chat-bottom"><span class="history-snippet"></span><span class="history-badge"></span></span></span>';
       return node;
     });
     attribute(row, 'class', `history-chat${chat.id === activeId ? ' selected' : ''}${unread ? ' unread' : ''}`);
     attribute(row, 'aria-current', chat.id === activeId ? 'true' : null);
     attribute(row, 'title', `${chat.name} — ${network.name}`);
-    attribute(row.querySelector('svg'), 'class', `network-logo network-${network.icon}`);
-    attribute(row.querySelector('svg'), 'aria-label', network.name);
-    attribute(row.querySelector('use'), 'href', `assets/legacy-icons.svg#app-${network.icon}`);
+    const networkBadge = row.querySelector('.history-network-badge') || row.querySelector('.history-contact-avatar > svg[role="img"]');
+    attribute(networkBadge, 'class', `history-network-badge network-logo network-${network.icon}`);
+    attribute(networkBadge, 'aria-label', network.name);
+    attribute(networkBadge.querySelector('use'), 'href', `assets/legacy-icons.svg#app-${network.icon}`);
     text(row.querySelector('strong'), chat.name);
     text(row.querySelector('time'), chat.historyTime);
     attribute(row.querySelector('time'), 'title', chat.activityAt || '');
     const snippet = row.querySelector('.history-snippet'), badge = row.querySelector('.history-badge');
-    text(snippet, chat.previewText);
+    text(snippet, `— ${chat.previewText}`);
     attribute(snippet, 'class', `history-snippet${chat.hasDraft ? ' is-draft' : ''}`);
     badge.hidden = !unread;
     if (unread) { text(badge, String(chat.unread || '●')); attribute(badge, 'aria-label', `${chat.unread || 1} conversation ou messages non lus`); }
