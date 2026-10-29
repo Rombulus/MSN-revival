@@ -3,6 +3,7 @@ import { linkify, webURL, renderAttachments, renderPreviews, matchInstagramReels
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const clock = value => value ? new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+const dateClock = value => { const date = new Date(value); return value && Number.isFinite(date.getTime()) ? `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} · ${clock(value)}` : ''; };
 const demo = [{ id: 'demo', name: 'Quentin', network: 'Démonstration', messages: [
   { id: '1', senderName: 'Quentin', text: 'Wesh :)', timestamp: new Date().toISOString() },
   { id: '2', senderName: 'Moi', text: 'Tu fais quoi ce soir ?', isSender: true, timestamp: new Date().toISOString() },
@@ -13,7 +14,13 @@ let chatsCursor = null, listBusy = false, syncBusy = false, soundOn = true, audi
 let accounts = [], accountsLoaded = false;
 let recording = null, recordingSequence = 0, draftAudioURL = null, draftImageURL = null;
 const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-const senderColors = ['#007a2e', '#0055d4', '#ad006e', '#b34400', '#673ab7', '#00748a'];
+const senderColors = [
+  { value: '#008900', hue: 130 }, { value: '#c74d00', hue: 30 },
+  { value: '#0055e7', hue: 215 }, { value: '#827400', hue: 65 },
+  { value: '#00777a', hue: 180 }, { value: '#c90030', hue: 350 },
+  { value: '#6f00c8', hue: 275 }, { value: '#727d00', hue: 90 },
+];
+const selfSenderColor = '#d000ad';
 const collapsedRosterGroups = new Set();
 let historyUnreadOnly = false;
 let readTimer;
@@ -226,30 +233,55 @@ function scrollToLatest(box = $('#messages')) {
   box.dataset.follow = 'true';
   box.scrollTop = box.scrollHeight;
 }
+function senderColorAssignments(rows, chat) {
+  const assignments = new Map([['self', selfSenderColor]]);
+  const senders = [];
+  for (const message of rows) {
+    if (message.isHidden || message.isSender) continue;
+    const name = message.senderName || chat.name;
+    const key = message.senderID ? `id:${message.senderID}` : `name:${name.trim().toLocaleLowerCase()}`;
+    if (!assignments.has(key) && !senders.includes(key)) senders.push(key);
+  }
+  const available = [...senderColors];
+  const usedHues = [310];
+  for (const key of senders) {
+    if (!available.length) { assignments.set(key, senderColors[senders.indexOf(key) % senderColors.length].value); continue; }
+    let bestIndex = 0, bestDistance = -1;
+    for (let index = 0; index < available.length; index++) {
+      const hue = available[index].hue;
+      const distance = Math.min(...usedHues.map(used => { const delta = Math.abs(hue - used); return Math.min(delta, 360 - delta); }));
+      if (distance > bestDistance) { bestDistance = distance; bestIndex = index; }
+    }
+    const [chosen] = available.splice(bestIndex, 1);
+    assignments.set(key, chosen.value); usedHues.push(chosen.hue);
+  }
+  return assignments;
+}
 function renderMessages(forceBottom = false) {
   const chat = current(); if (!chat) return;
   const box = $('#messages'); const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const rows = [...chat.messages, ...chat.pending];
+  const colorsBySender = senderColorAssignments(rows, chat);
   const old = new Map();
   for (const node of [...box.children]) { if (node.dataset.messageKey) old.set(node.dataset.messageKey, node); else node.remove(); }
   let position = box.firstElementChild, count = 0, previous = null;
   for (const message of rows) {
     if (message.isHidden) continue;
     const name = message.isSender ? (chat.selfName || 'Moi') : (message.senderName || chat.name);
-    const key = String(message.localId || message.sourceKey || message.id), signature = JSON.stringify([name, message.text, message.attachments, message.links, message.reactions, message.linkedMessageID, message.isDeleted, message.failed, message.progress, message.localPending, message.sendStatus?.status, message.sendStatus?.message, chat.readOnly, connected]);
+    const key = String(message.localId || message.sourceKey || message.id), signature = JSON.stringify([name, message.timestamp, message.text, message.attachments, message.links, message.reactions, message.linkedMessageID, message.isDeleted, message.failed, message.progress, message.localPending, message.sendStatus?.status, message.sendStatus?.message, chat.readOnly, connected]);
     let node = old.get(key); old.delete(key);
     if (!node) { node = document.createElement('article'); node.dataset.messageKey = key; }
+    const senderKey = message.isSender ? 'self' : message.senderID ? `id:${message.senderID}` : `name:${name.trim().toLocaleLowerCase()}`;
+    node.style.setProperty('--sender-color', colorsBySender.get(senderKey) || senderColors[0].value);
     const playing = [...node.querySelectorAll('video,audio')].some(player => !player.paused && !player.ended);
     if (node.dataset.signature !== signature && (!playing || message.isDeleted)) {
       node.className = `message-row ${message.isSender ? 'mine' : ''}`; node.dataset.signature = signature;
       node.dataset.messageId = message.id || '';
       node.dataset.messageChat = message.chatID || chat.id;
-      let senderHash = 0; for (const char of (message.senderID || name)) senderHash = (senderHash * 31 + char.charCodeAt(0)) | 0;
-      node.style.setProperty('--sender-color', message.isSender ? '#b00072' : senderColors[(senderHash % senderColors.length + senderColors.length) % senderColors.length]);
       const text = message.isDeleted ? '(Message supprimé)' : (message.text || (!message.attachments?.length && !message.links?.length ? '(Message sans texte)' : ''));
       const reels = matchInstagramReels(message, plain(message.text));
       const replyTo = message.linkedMessageID ? replyQuote(message, chat) : '';
-      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time title="${esc(message.timestamp)}">${esc(clock(message.timestamp))}</time></div>${replyTo}<div class="message-line"><div class="bubble">${richText(text)}</div>${messageActions(message, chat)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageReactionsMarkup(message, chat)}</div>`;
+      node.innerHTML = `<div class="message-content"><div class="message-meta"><strong>${esc(name)} dit :</strong><time datetime="${esc(message.timestamp)}" title="${esc(message.timestamp)}">${esc(dateClock(message.timestamp))}</time></div>${replyTo}<div class="message-line"><div class="bubble">${richText(text)}</div>${messageActions(message, chat)}</div>${message.isDeleted ? '' : renderAttachments(message, reels) + renderPreviews(message, plain(message.text), reels.fusedURLs)}${message.localPending ? `<small class="send-state ${message.failed ? 'failed' : ''}">${message.failed ? 'Envoi non confirmé' : (message.progress || 'Envoi en cours…')}${message.failed ? ` <button data-retry="${esc(message.localId)}">Réessayer</button>` : ''}</small>` : messageReactionsMarkup(message, chat)}</div>`;
       if (!message.localPending && message.sendStatus?.status?.startsWith('FAIL')) {
         const status = document.createElement('small'); status.className = 'send-state failed'; status.textContent = message.sendStatus.message || 'Le réseau a signalé un échec de l’envoi.'; node.firstElementChild.append(status);
       }
@@ -257,7 +289,7 @@ function renderMessages(forceBottom = false) {
     const continuation = continuesMessageGroup(previous, message);
     node.classList.toggle('message-continuation', continuation);
     const meta = node.querySelector('.message-meta'); if (meta) meta.hidden = continuation;
-    node.setAttribute('aria-label', `${name}, ${clock(message.timestamp)}`);
+    node.setAttribute('aria-label', `${name}, ${dateClock(message.timestamp)}`);
     previous = message;
     if (node !== position) box.insertBefore(node, position);
     position = node.nextElementSibling; count++;

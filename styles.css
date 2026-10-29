@@ -71,8 +71,9 @@ body { padding: 18px; background: radial-gradient(ellipse at 50% 0%, #b7d6f5, tr
 .message-meta[hidden] { display: none; }
 .message-content { max-width: 100%; }
 .message-meta { margin-bottom: 3px; }
-.message-meta strong { color: var(--sender-color, #0055d4); font-size: 12px; }
-.message-row.mine .message-meta strong { color: var(--sender-color, #b00072); }
+.message-meta strong { color: var(--sender-color, #004ee8); font: 700 13px Tahoma, Arial, sans-serif; text-shadow: 0 0 .35px currentColor; }
+.message-meta time { flex: none; color: #71869a; font: 10px Tahoma, Arial, sans-serif; white-space: nowrap; }
+.message-row.mine .message-meta strong { color: var(--sender-color, #d000ad); }
 .legacy-right { display: grid; grid-template-rows: minmax(0, 1fr) 200px; gap: 8px; }
 .classic-card { min-height: 0; flex: initial; }
 .classic-frame { margin: 0 2px; }
