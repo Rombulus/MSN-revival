@@ -1,0 +1,12 @@
+{
+  "name": "MSN Revival",
+  "short_name": "MSN Revival",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#e6f3ff",
+  "theme_color": "#1687cf",
+  "icons": [
+    { "src": "/assets/msn-messenger-contacts.png", "sizes": "256x256", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

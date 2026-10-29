@@ -284,4 +284,24 @@ body { padding: 18px; background: radial-gradient(ellipse at 50% 0%, #b7d6f5, tr
 .reply-quote { display: flex; flex-direction: column; gap: 2px; max-width: min(360px, 100%); margin: 5px 0; padding: 4px 8px; border: 0; border-left: 2px solid #74a7cf; background: #edf5fc; text-align: left; cursor: pointer; }
 .reply-quote strong { color: #326d98; font: bold 9px Tahoma; }.reply-quote span { overflow: hidden; color: #647f96; font: 10px Tahoma; white-space: nowrap; text-overflow: ellipsis; }
 @media (hover: none) { .message-actions { opacity: 1; pointer-events: auto; } }
-.window, .window.maximized { width: 100vw; height: 100dvh; min-height: 0; max-width: none; border: 0; border-radius: 0; box-shadow: none; }
+.window, .window.maximized { position: fixed; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; border: 0; border-radius: 0; box-shadow: none; }
+html, body { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.legacy-layout { width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.legacy-left, .transcript-panel, .composer { min-width: 0; }
+.legacy-right { width: clamp(150px, 18vw, 200px); min-width: 0; }
+.legacy-toolbar, .titlebar, .legacy-layout { flex-shrink: 0; }
+.legacy-layout { flex: 1 1 auto; }
+.promo-bar { display: none; }
+@media (max-height: 640px) {
+  .titlebar { height: 37px; }
+  .legacy-toolbar { height: 68px; }
+  .legacy-toolbar>button:not(.tiny-tool) { height: 58px; }
+  .tool-icon { height: 33px; }
+  .legacy-toolbar .tiny-tool { margin-top: 33px; }
+  .legacy-right { grid-template-rows: minmax(0, 1fr) minmax(118px, 34%); }
+  .composer { flex-basis: 160px; }
+}
+@media (max-width: 760px) {
+  .legacy-right { width: clamp(76px, 22vw, 150px); }
+  .legacy-layout { padding: 6px; gap: 7px; }
+}

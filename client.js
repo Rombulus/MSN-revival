@@ -192,6 +192,7 @@ function messageActions(message, chat) {
   return `<div class="message-actions"><button class="message-action-icon" data-reply-message="${esc(message.id)}" data-reply-chat="${esc(sourceID)}" title="Répondre" aria-label="Répondre à ce message">↩</button><div class="message-react-control"><button class="message-action-icon" data-toggle-reactions aria-expanded="false" aria-label="Réagir au message" title="Réagir">☺</button><div class="message-reaction-picker" hidden>${picker}</div></div></div>`;
 }
 function messageReactionsMarkup(message, chat) {
+  const ownIDs = ownReactionIDs(chat);
   const grouped = new Map();
   for (const reaction of message.reactions || []) {
     const key = reaction.reactionKey; if (typeof key !== 'string' || !key) continue;
@@ -715,7 +716,19 @@ $('#messages').addEventListener('error', event => {
 }, true);
 function mediaLoaded() { const box = $('#messages'); if (box.dataset.follow === 'true') box.scrollTop = box.scrollHeight; scheduleRead(); }
 $('#messages').addEventListener('load', mediaLoaded, true); $('#messages').addEventListener('loadedmetadata', mediaLoaded, true);
-$('#messages').addEventListener('scroll', () => { const box = $('#messages'); box.dataset.follow = String(box.scrollHeight - box.scrollTop - box.clientHeight < 80); scheduleRead(); });
+function loadOlderAtTop(box) {
+  const chat = current();
+  if (box.scrollTop > 56 || !connected || !chat?.hasMore || chat.loading) return;
+  const sourceIDs = chat.sourceChatIDs?.length ? chat.sourceChatIDs : [chat.id];
+  const cursorKey = JSON.stringify(sourceIDs.map(id => {
+    const page = chat.sourcePages?.get(id);
+    return [id, page?.oldestCursor || null, !!page?.hasMore];
+  }));
+  if (chat.autoOlderCursor === cursorKey) return;
+  chat.autoOlderCursor = cursorKey;
+  syncMessages(chat, { older: true });
+}
+$('#messages').addEventListener('scroll', () => { const box = $('#messages'); box.dataset.follow = String(box.scrollHeight - box.scrollTop - box.clientHeight < 80); scheduleRead(); loadOlderAtTop(box); });
 window.addEventListener('focus', scheduleRead);
 document.addEventListener('visibilitychange', scheduleRead);
 $('#media-viewer').addEventListener('close', scheduleRead);
