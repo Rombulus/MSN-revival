@@ -292,6 +292,7 @@ html, body { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: h
 .legacy-toolbar, .titlebar, .legacy-layout { flex-shrink: 0; }
 .legacy-layout { flex: 1 1 auto; }
 .promo-bar { display: none; }
+.messages { scroll-behavior: auto; }
 @media (max-height: 640px) {
   .titlebar { height: 37px; }
   .legacy-toolbar { height: 68px; }

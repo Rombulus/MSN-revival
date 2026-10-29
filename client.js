@@ -222,6 +222,10 @@ function setPhoto(image, fallback, source) {
   if (!next) { image.removeAttribute('src'); return; }
   image.src = /^https:\/\//i.test(next) || /^data:image\/(png|jpeg|webp|gif);base64,/i.test(next) ? next : '/api/avatar?' + new URLSearchParams({ url: next });
 }
+function scrollToLatest(box = $('#messages')) {
+  box.dataset.follow = 'true';
+  box.scrollTop = box.scrollHeight;
+}
 function renderMessages(forceBottom = false) {
   const chat = current(); if (!chat) return;
   const box = $('#messages'); const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
@@ -266,7 +270,7 @@ function renderMessages(forceBottom = false) {
     const warning = document.createElement('div'); warning.className = 'history-message-state warning'; warning.innerHTML = `<p>${esc(chat.loadError)}</p><button data-retry-history>Réessayer</button>`; box.append(warning);
   }
   box.dataset.follow = String(forceBottom || nearBottom);
-  if (forceBottom || nearBottom) box.scrollTop = box.scrollHeight;
+  if (forceBottom || nearBottom) scrollToLatest(box);
   scheduleRead();
 }
 function readTargets(chat) {
@@ -714,7 +718,7 @@ $('#messages').addEventListener('error', event => {
   const frame = event.target.closest?.('.attachment'); if (frame) frame.querySelector('.media-error').hidden = false;
   else if (event.target.closest?.('.link-preview')) event.target.hidden = true;
 }, true);
-function mediaLoaded() { const box = $('#messages'); if (box.dataset.follow === 'true') box.scrollTop = box.scrollHeight; scheduleRead(); }
+function mediaLoaded() { const box = $('#messages'); if (box.dataset.follow === 'true') scrollToLatest(box); scheduleRead(); }
 $('#messages').addEventListener('load', mediaLoaded, true); $('#messages').addEventListener('loadedmetadata', mediaLoaded, true);
 function loadOlderAtTop(box) {
   const chat = current();

@@ -22,6 +22,10 @@ const staticFiles = new Map([
   ['/styles.css', ['styles.css', 'text/css']], ['/client.js', ['client.js', 'text/javascript']],
   ['/profiles.mjs', ['profiles.mjs', 'text/javascript']],
   ['/media.mjs', ['media.mjs', 'text/javascript']],
+  ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
+  ['/favicon.ico', ['assets/msn-messenger-contacts.ico', 'image/vnd.microsoft.icon']],
+  ['/assets/msn-messenger-contacts.ico', ['assets/msn-messenger-contacts.ico', 'image/vnd.microsoft.icon']],
+  ['/assets/msn-messenger-contacts.png', ['assets/msn-messenger-contacts.png', 'image/png']],
   ['/assets/legacy-icons.svg', ['assets/legacy-icons.svg', 'image/svg+xml']],
   ['/assets/buddy.svg', ['assets/buddy.svg', 'image/svg+xml']], ['/assets/duck.svg', ['assets/duck.svg', 'image/svg+xml']],
 ]);
@@ -170,7 +174,9 @@ const server = http.createServer(async (req, res) => {
     }
     const file = staticFiles.get(url.pathname);
     if (!file || req.method !== 'GET') return reply(res, 404, { error: 'Page introuvable.' });
-    const content = await readFile(join(root, file[0])); res.writeHead(200, { 'Content-Type': file[1] + '; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(content);
+    const content = await readFile(join(root, file[0]));
+    const contentType = /^(text\/|application\/(?:javascript|manifest\+json)|image\/svg\+xml)/.test(file[1]) ? file[1] + '; charset=utf-8' : file[1];
+    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' }); res.end(content);
   } catch (error) {
     if (res.headersSent) { res.destroy(); return; }
     const message = error.name === 'TimeoutError' || error.message === 'fetch failed' ? 'Beeper est inaccessible. Ouvre Beeper et active son API locale dans Paramètres → Intégrations.' : error.message;
